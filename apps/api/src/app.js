@@ -18,6 +18,7 @@ function createStore() {
       criterion: 1,
       testCase: 1,
       execution: 1,
+      evidence: 1,
       audit: 1,
       providerConfig: 1
     },
@@ -47,6 +48,7 @@ function createStore() {
     acceptanceCriteria: [],
     testCases: [],
     executions: [],
+    evidence: [],
     aiProviderConfig: null,
     audit: []
   };
@@ -78,6 +80,15 @@ function parseGithubUrl(url) {
   const match = /^https:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?\/?$/.exec(url || '');
   if (!match) return null;
   return { owner: match[1], name: match[2], defaultBranch: 'main' };
+}
+
+function publicEvidence(evidence) {
+  const { contentBase64, ...safeEvidence } = evidence;
+  return {
+    ...safeEvidence,
+    viewUrl: `/evidence/${evidence.id}`,
+    downloadUrl: `/evidence/${evidence.id}/download`
+  };
 }
 
 function requireAuth(store, request, reply) {
@@ -451,6 +462,73 @@ export async function buildApp(options = {}) {
       newStatus: status
     });
     return reply.code(201).send({ execution });
+  });
+
+  app.post('/executions/:id/evidence', async (request, reply) => {
+    const actor = requireAuth(store, request, reply);
+    if (!actor || !requireRole(actor, ['Admin', 'Project Manager', 'Tester'], reply)) return reply;
+    const execution = store.executions.find((candidate) => candidate.id === request.params.id);
+    if (!execution) return reply.code(404).send({ error: 'Execution not found' });
+
+    const { fileName, mimeType, contentBase64, notes = '' } = request.body || {};
+    if (!fileName || !mimeType || !contentBase64) {
+      return reply.code(400).send({ error: 'File name, MIME type, and content are required' });
+    }
+
+    const evidence = {
+      id: `evidence-${store.ids.evidence++}`,
+      executionId: execution.id,
+      testCaseId: execution.testCaseId,
+      projectId: execution.projectId,
+      fileName,
+      mimeType,
+      sizeBytes: Buffer.byteLength(contentBase64, 'base64'),
+      contentBase64,
+      notes,
+      uploadedBy: actor.id,
+      uploadedByName: actor.name,
+      uploadedAt: store.now()
+    };
+    store.evidence.push(evidence);
+    execution.evidence.push(publicEvidence(evidence));
+    store.auditEvent(actor, 'evidence.uploaded', evidence.id, {
+      projectId: execution.projectId,
+      executionId: execution.id,
+      fileName
+    });
+    return reply.code(201).send({ evidence: publicEvidence(evidence) });
+  });
+
+  app.get('/executions/:id/evidence', async (request, reply) => {
+    const actor = requireAuth(store, request, reply);
+    if (!actor) return reply;
+    const execution = store.executions.find((candidate) => candidate.id === request.params.id);
+    if (!execution) return reply.code(404).send({ error: 'Execution not found' });
+    return {
+      evidence: store.evidence
+        .filter((item) => item.executionId === execution.id)
+        .map((item) => publicEvidence(item))
+    };
+  });
+
+  app.get('/evidence/:id', async (request, reply) => {
+    const actor = requireAuth(store, request, reply);
+    if (!actor) return reply;
+    const evidence = store.evidence.find((candidate) => candidate.id === request.params.id);
+    if (!evidence) return reply.code(404).send({ error: 'Evidence not found' });
+    return { evidence: publicEvidence(evidence) };
+  });
+
+  app.get('/evidence/:id/download', async (request, reply) => {
+    const actor = requireAuth(store, request, reply);
+    if (!actor) return reply;
+    const evidence = store.evidence.find((candidate) => candidate.id === request.params.id);
+    if (!evidence) return reply.code(404).send({ error: 'Evidence not found' });
+    const buffer = Buffer.from(evidence.contentBase64, 'base64');
+    return reply
+      .header('content-type', evidence.mimeType)
+      .header('content-disposition', `attachment; filename="${evidence.fileName}"`)
+      .send(buffer);
   });
 
   app.get('/projects/:id/dashboard', async (request, reply) => {

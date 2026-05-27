@@ -168,6 +168,61 @@ describe('functional testing API MVP', () => {
     });
     expect(execution.statusCode).toBe(201);
     expect(execution.json().execution.evidence[0].fileName).toBe('reset-email-missing.png');
+    const executionId = execution.json().execution.id;
+
+    const screenshotEvidence = await request(app, adminToken, {
+      method: 'POST',
+      url: `/executions/${executionId}/evidence`,
+      payload: {
+        fileName: 'reset-email-missing.png',
+        mimeType: 'image/png',
+        contentBase64: Buffer.from('fake png evidence').toString('base64'),
+        notes: 'Screenshot captured during UAT.'
+      }
+    });
+    expect(screenshotEvidence.statusCode).toBe(201);
+    expect(screenshotEvidence.json().evidence.downloadUrl).toBe(
+      `/evidence/${screenshotEvidence.json().evidence.id}/download`
+    );
+
+    const documentEvidence = await request(app, adminToken, {
+      method: 'POST',
+      url: `/executions/${executionId}/evidence`,
+      payload: {
+        fileName: 'uat-notes.txt',
+        mimeType: 'text/plain',
+        contentBase64: Buffer.from('Documented UAT notes').toString('base64'),
+        notes: 'Document evidence uploaded for the test run.'
+      }
+    });
+    expect(documentEvidence.statusCode).toBe(201);
+
+    const evidenceList = await request(app, adminToken, {
+      method: 'GET',
+      url: `/executions/${executionId}/evidence`
+    });
+    expect(evidenceList.statusCode).toBe(200);
+    expect(evidenceList.json().evidence.map((item) => item.fileName)).toEqual(
+      expect.arrayContaining(['reset-email-missing.png', 'uat-notes.txt'])
+    );
+
+    const evidenceView = await request(app, adminToken, {
+      method: 'GET',
+      url: `/evidence/${screenshotEvidence.json().evidence.id}`
+    });
+    expect(evidenceView.statusCode).toBe(200);
+    expect(evidenceView.json().evidence.contentBase64).toBeUndefined();
+    expect(evidenceView.json().evidence.viewUrl).toBe(
+      `/evidence/${screenshotEvidence.json().evidence.id}`
+    );
+
+    const evidenceDownload = await request(app, adminToken, {
+      method: 'GET',
+      url: `/evidence/${documentEvidence.json().evidence.id}/download`
+    });
+    expect(evidenceDownload.statusCode).toBe(200);
+    expect(evidenceDownload.headers['content-type']).toContain('text/plain');
+    expect(evidenceDownload.body).toBe('Documented UAT notes');
 
     const dashboard = await request(app, adminToken, {
       method: 'GET',
@@ -197,7 +252,8 @@ describe('functional testing API MVP', () => {
         'project.reopened',
         'repository.connected',
         'requirement.created',
-        'testExecution.created'
+        'testExecution.created',
+        'evidence.uploaded'
       ])
     );
   });

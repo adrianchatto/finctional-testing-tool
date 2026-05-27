@@ -98,7 +98,7 @@ High-level acceptance scenarios are captured in `tests/acceptance/platform-accep
 - Full manual UAT evidence has not yet been recorded for every story acceptance check.
 - High-level Gherkin scenarios are specifications, not executed browser acceptance tests.
 - AI behavior is represented by deterministic MVP stubs; production provider validation still requires real customer credentials.
-- Evidence capture currently supports evidence metadata in the MVP workflow; production file storage and retrieval still need hardening before final release approval.
+- Evidence capture now supports MVP upload, view, and download flows using in-memory storage; durable production object storage still needs hardening before final production release approval.
 - Release status remains conditional until the checklist in `tests/acceptance/acceptance-checklist.md` is executed and signed off.
 
 ## Validation Log
@@ -111,3 +111,4 @@ High-level acceptance scenarios are captured in `tests/acceptance/platform-accep
 | 2026-05-27 | HTTP smoke checks | Pass | Frontend returned HTTP 200 on `http://127.0.0.1:5173/`; API health returned `{"status":"ok"}` on `http://127.0.0.1:3001/health`. |
 | 2026-05-27 | `npm audit --omit=dev` | Pass | Production dependency audit reported zero vulnerabilities after framework dependency upgrades. |
 | 2026-05-27 | HTTP smoke checks after dependency upgrades | Pass | Frontend returned HTTP 200 on `http://127.0.0.1:5174/` because `5173` was already occupied; API health returned `{"status":"ok"}` on `http://127.0.0.1:3001/health`. |
+| 2026-05-27 | `npm test` | Pass | Evidence upload, list, view, and download behaviour is covered by API tests; frontend tests cover screenshot view and document download links. |

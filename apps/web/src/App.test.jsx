@@ -95,15 +95,26 @@ describe('Functional testing platform MVP', () => {
     await user.selectOptions(screen.getByLabelText(/Execution result/i), 'Fail');
     await user.clear(screen.getByLabelText(/Actual outcome/i));
     await user.type(screen.getByLabelText(/Actual outcome/i), 'Wallet token expired but checkout still completed.');
-    await user.clear(screen.getByLabelText(/Evidence filename/i));
-    await user.type(screen.getByLabelText(/Evidence filename/i), 'checkout-wallet-fail.png');
+    await user.clear(screen.getByLabelText(/Screenshot evidence filename/i));
+    await user.type(screen.getByLabelText(/Screenshot evidence filename/i), 'checkout-wallet-fail.png');
     await user.clear(screen.getByLabelText(/Evidence notes/i));
     await user.type(screen.getByLabelText(/Evidence notes/i), 'Screenshot captured in UAT at 10:42.');
+    await user.clear(screen.getByLabelText(/Document evidence filename/i));
+    await user.type(screen.getByLabelText(/Document evidence filename/i), 'wallet-uat-notes.pdf');
     await user.click(screen.getByRole('button', { name: /Save execution result/i }));
 
     const execution = screen.getByRole('region', { name: /Manual execution and evidence/i });
     expect(within(execution).getAllByText(/^Fail$/i).length).toBeGreaterThan(0);
     expect(within(execution).getByText(/checkout-wallet-fail.png/i)).toBeInTheDocument();
+    expect(within(execution).getByText(/wallet-uat-notes.pdf/i)).toBeInTheDocument();
+    expect(within(execution).getByRole('link', { name: /View screenshot evidence/i })).toHaveAttribute(
+      'href',
+      expect.stringContaining('data:image/png')
+    );
+    expect(within(execution).getByRole('link', { name: /Download document evidence/i })).toHaveAttribute(
+      'download',
+      'wallet-uat-notes.pdf'
+    );
     expect(within(execution).getAllByText(/Screenshot captured in UAT at 10:42/i).length).toBeGreaterThan(
       0
     );

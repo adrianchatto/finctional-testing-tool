@@ -10,7 +10,7 @@ Use this checklist for manual UAT execution until an automated scaffold is avail
 | API health is available | API responds successfully | Pass |
 | Test users exist | Admin, Project Manager, Tester, and Viewer can be used | Pass |
 | AI test provider or stub is configured | AI-dependent tests are deterministic enough to assess | Pass |
-| Evidence upload storage is configured | Screenshot and document uploads can be retained and viewed | Blocked |
+| Evidence upload storage is configured | Screenshot and document uploads can be retained and viewed | Pass |
 
 ## Story Acceptance Checks
 
@@ -119,10 +119,10 @@ Use this checklist for manual UAT execution until an automated scaffold is avail
 
 | Check | Expected result | Result |
 | --- | --- | --- |
-| Upload screenshot | Screenshot is accepted | Not Run |
-| Upload document | Document is accepted | Not Run |
-| Open test run | Evidence is linked to test run | Not Run |
-| View uploaded file | Uploaded evidence is accessible | Not Run |
+| Upload screenshot | Screenshot is accepted | Pass |
+| Upload document | Document is accepted | Pass |
+| Open test run | Evidence is linked to test run | Pass |
+| View uploaded file | Uploaded evidence is accessible | Pass |
 
 ### #13 Project Dashboard
 
@@ -180,4 +180,4 @@ Use this checklist for manual UAT execution until an automated scaffold is avail
 
 Current decision: **Conditional release candidate only. Do not mark as final QA-approved release.**
 
-Reason: automated API, frontend, build, and HTTP smoke checks pass, but full manual UAT evidence has not been recorded for all 18 user stories. Evidence file storage/viewing remains a release hardening gap beyond MVP metadata capture.
+Reason: automated API, frontend, build, and HTTP smoke checks pass, and MVP evidence upload/view/download behaviour is now covered. Full manual UAT evidence still has not been recorded for all 18 user stories, and durable production object storage remains a release hardening item beyond the in-memory MVP.

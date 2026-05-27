@@ -42,6 +42,7 @@ export function App() {
   const [executionResult, setExecutionResult] = useState('Not Run');
   const [actualOutcome, setActualOutcome] = useState('Expected result is visible beside actual result.');
   const [evidenceFilename, setEvidenceFilename] = useState('checkout-evidence.png');
+  const [documentEvidenceFilename, setDocumentEvidenceFilename] = useState('checkout-uat-notes.pdf');
   const [evidenceNotes, setEvidenceNotes] = useState('Screenshot attached to the UAT run.');
   const [savedExecution, setSavedExecution] = useState(null);
   const [defaultProvider, setDefaultProvider] = useState('OpenAI');
@@ -94,6 +95,7 @@ export function App() {
       result: executionResult,
       actualOutcome,
       evidenceFilename,
+      documentEvidenceFilename,
       evidenceNotes
     };
     setSavedExecution(execution);
@@ -266,11 +268,17 @@ export function App() {
             value={actualOutcome}
             onChange={(event) => setActualOutcome(event.target.value)}
           />
-          <label htmlFor="evidence-filename">Evidence filename</label>
+          <label htmlFor="evidence-filename">Screenshot evidence filename</label>
           <input
             id="evidence-filename"
             value={evidenceFilename}
             onChange={(event) => setEvidenceFilename(event.target.value)}
+          />
+          <label htmlFor="document-evidence-filename">Document evidence filename</label>
+          <input
+            id="document-evidence-filename"
+            value={documentEvidenceFilename}
+            onChange={(event) => setDocumentEvidenceFilename(event.target.value)}
           />
           <label htmlFor="evidence-notes">Evidence notes</label>
           <textarea
@@ -287,7 +295,21 @@ export function App() {
               <p>{savedExecution.result}</p>
               <p>{savedExecution.actualOutcome}</p>
               <p>{savedExecution.evidenceFilename}</p>
+              <p>{savedExecution.documentEvidenceFilename}</p>
               <p>{savedExecution.evidenceNotes}</p>
+              <a
+                href={`data:image/png;base64,${btoa(savedExecution.evidenceNotes)}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                View screenshot evidence
+              </a>
+              <a
+                href={`data:application/pdf;base64,${btoa(savedExecution.actualOutcome)}`}
+                download={savedExecution.documentEvidenceFilename}
+              >
+                Download document evidence
+              </a>
             </div>
           )}
         </section>
