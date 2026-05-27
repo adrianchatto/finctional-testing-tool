@@ -184,6 +184,53 @@ The initial product backlog is organised into the following epics:
 
 Each user story is tracked as a GitHub issue in this repository.
 
+## MVP Implementation
+
+This repository now contains an initial full-stack MVP release candidate:
+
+- `apps/web` - React and Vite frontend for the UAT governance workspace
+- `apps/api` - Fastify API with in-memory data stores for the initial workflow
+- `docs/product` - MVP scope and acceptance matrix
+- `docs/qa` and `tests/acceptance` - QA acceptance plan, checklist, and Gherkin scenarios
+
+The MVP is built around a test-driven workflow. Automated tests cover the core UAT path across authentication, role-aware access, project setup, GitHub repository context, AI-assisted requirement and test generation, manual execution, evidence metadata, dashboards, release readiness, BYOAI settings, and audit logging.
+
+### Local Development
+
+Install dependencies:
+
+```sh
+npm install
+```
+
+Run the API and web app:
+
+```sh
+npm run dev
+```
+
+The frontend runs on `http://localhost:5173` and the API health endpoint runs on `http://localhost:3001/health`.
+
+### Verification
+
+Run all tests:
+
+```sh
+npm test
+```
+
+Run the production build checks:
+
+```sh
+npm run build
+```
+
+### Release Status
+
+Current status: MVP release candidate, not final QA-approved release.
+
+Automated gates pass, but final release approval requires completing the QA acceptance checklist for all 18 user stories and recording evidence for any manual UAT checks that cannot be proven through automated tests.
+
 ## Future Enhancements
 
 Potential roadmap items include:

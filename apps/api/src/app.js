@@ -1,0 +1,530 @@
+import Fastify from 'fastify';
+import cors from '@fastify/cors';
+import multipart from '@fastify/multipart';
+
+const roles = ['Admin', 'Project Manager', 'Tester', 'Viewer'];
+const providers = ['openai', 'anthropic', 'gemini', 'azure-openai', 'aws-bedrock'];
+const resultStatuses = ['pass', 'fail', 'blocked', 'not-run'];
+
+function createStore() {
+  const now = () => new Date().toISOString();
+  const store = {
+    ids: {
+      user: 3,
+      project: 1,
+      repository: 1,
+      requirement: 1,
+      story: 1,
+      criterion: 1,
+      testCase: 1,
+      execution: 1,
+      audit: 1,
+      providerConfig: 1
+    },
+    users: [
+      {
+        id: 'user-1',
+        name: 'Admin User',
+        email: 'admin@example.com',
+        password: 'password',
+        roles: ['Admin', 'Project Manager', 'Tester'],
+        disabled: false
+      },
+      {
+        id: 'user-2',
+        name: 'Viewer User',
+        email: 'viewer@example.com',
+        password: 'password',
+        roles: ['Viewer'],
+        disabled: false
+      }
+    ],
+    sessions: new Map(),
+    projects: [],
+    repositories: [],
+    requirements: [],
+    stories: [],
+    acceptanceCriteria: [],
+    testCases: [],
+    executions: [],
+    aiProviderConfig: null,
+    audit: []
+  };
+
+  store.auditEvent = (actor, action, target, details = {}) => {
+    const event = {
+      id: `audit-${store.ids.audit++}`,
+      actorId: actor?.id || 'system',
+      actorName: actor?.name || 'System',
+      action,
+      target,
+      details,
+      timestamp: now()
+    };
+    store.audit.push(event);
+    return event;
+  };
+
+  store.now = now;
+  return store;
+}
+
+function publicUser(user) {
+  const { password, ...safeUser } = user;
+  return safeUser;
+}
+
+function parseGithubUrl(url) {
+  const match = /^https:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?\/?$/.exec(url || '');
+  if (!match) return null;
+  return { owner: match[1], name: match[2], defaultBranch: 'main' };
+}
+
+function requireAuth(store, request, reply) {
+  const authorization = request.headers.authorization || '';
+  const token = authorization.replace('Bearer ', '');
+  const userId = store.sessions.get(token);
+  const user = store.users.find((candidate) => candidate.id === userId && !candidate.disabled);
+
+  if (!user) {
+    reply.code(401).send({ error: 'Authentication required' });
+    return null;
+  }
+
+  return user;
+}
+
+function requireRole(user, allowedRoles, reply) {
+  if (!allowedRoles.some((role) => user.roles.includes(role))) {
+    reply.code(403).send({ error: 'Insufficient permissions' });
+    return false;
+  }
+  return true;
+}
+
+function generateCriteria(store, story, actor) {
+  const templates = [
+    `Given ${story.title}, when the workflow is completed, then the expected business outcome is visible.`,
+    'Errors, blocked states, and validation messages are measurable and business-readable.',
+    'The generated output remains editable, linked to the user story, and auditable.'
+  ];
+
+  const criteria = templates.map((text) => ({
+    id: `criterion-${store.ids.criterion++}`,
+    storyId: story.id,
+    text,
+    editable: true,
+    generatedBy: actor.id,
+    provider: story.provider || 'openai',
+    model: story.model || 'gpt-4.1-mini',
+    createdAt: store.now()
+  }));
+
+  store.acceptanceCriteria.push(...criteria);
+  return criteria;
+}
+
+function generateTests(store, projectId, story, actor, includeNegative) {
+  const baseTest = {
+    id: `test-${store.ids.testCase++}`,
+    projectId,
+    storyId: story.id,
+    title: `${story.title} - happy path`,
+    type: 'functional',
+    preconditions: ['User has access to the project workflow'],
+    steps: ['Open the workflow', 'Complete the required business action', 'Review the result'],
+    expectedOutcome: `The ${story.title} workflow completes successfully.`,
+    editable: true,
+    createdBy: actor.id,
+    createdAt: store.now(),
+    critical: true
+  };
+  const tests = [baseTest];
+
+  if (includeNegative) {
+    tests.push({
+      id: `test-${store.ids.testCase++}`,
+      projectId,
+      storyId: story.id,
+      title: `${story.title} - invalid or unauthorised path`,
+      type: 'negative',
+      preconditions: ['User attempts an invalid, expired, or unauthorised action'],
+      steps: ['Submit invalid input', 'Attempt restricted access', 'Review validation response'],
+      expectedOutcome: 'The platform blocks the action and displays a clear error.',
+      editable: true,
+      createdBy: actor.id,
+      createdAt: store.now(),
+      critical: false
+    });
+  }
+
+  store.testCases.push(...tests);
+  return tests;
+}
+
+export async function buildApp(options = {}) {
+  const app = Fastify({ logger: false });
+  const store = options.store || createStore();
+
+  await app.register(cors, { origin: true });
+  await app.register(multipart);
+
+  app.decorate('store', store);
+
+  app.get('/health', async () => ({ status: 'ok' }));
+
+  app.post('/auth/login', async (request, reply) => {
+    const { email, password } = request.body || {};
+    const user = store.users.find((candidate) => candidate.email === email);
+
+    if (!user || user.password !== password || user.disabled) {
+      return reply.code(401).send({ error: 'Invalid credentials' });
+    }
+
+    const token = `token-${user.id}-${Date.now()}`;
+    store.sessions.set(token, user.id);
+    store.auditEvent(user, 'auth.login', user.id);
+    return { token, user: publicUser(user) };
+  });
+
+  app.get('/auth/session', async (request, reply) => {
+    const user = requireAuth(store, request, reply);
+    if (!user) return reply;
+    return { user: publicUser(user) };
+  });
+
+  app.post('/users', async (request, reply) => {
+    const actor = requireAuth(store, request, reply);
+    if (!actor || !requireRole(actor, ['Admin'], reply)) return reply;
+
+    const { name, email, roles: requestedRoles = ['Viewer'], disabled = false } = request.body || {};
+    const validRoles = requestedRoles.filter((role) => roles.includes(role));
+    if (!name || !email || validRoles.length === 0) {
+      return reply.code(400).send({ error: 'Name, email, and valid role are required' });
+    }
+
+    const user = {
+      id: `user-${store.ids.user++}`,
+      name,
+      email,
+      password: 'password',
+      roles: validRoles,
+      disabled
+    };
+    store.users.push(user);
+    store.auditEvent(actor, 'user.created', user.id, { roles: validRoles });
+    return reply.code(201).send({ user: publicUser(user) });
+  });
+
+  app.patch('/users/:id', async (request, reply) => {
+    const actor = requireAuth(store, request, reply);
+    if (!actor || !requireRole(actor, ['Admin'], reply)) return reply;
+    const user = store.users.find((candidate) => candidate.id === request.params.id);
+    if (!user) return reply.code(404).send({ error: 'User not found' });
+
+    const before = publicUser(user);
+    if (Array.isArray(request.body?.roles)) {
+      user.roles = request.body.roles.filter((role) => roles.includes(role));
+    }
+    if (typeof request.body?.disabled === 'boolean') {
+      user.disabled = request.body.disabled;
+    }
+    store.auditEvent(actor, 'user.updated', user.id, { before, after: publicUser(user) });
+    return { user: publicUser(user) };
+  });
+
+  app.post('/projects', async (request, reply) => {
+    const actor = requireAuth(store, request, reply);
+    if (!actor || !requireRole(actor, ['Admin', 'Project Manager'], reply)) return reply;
+    const { name, description = '', metadata = {}, assignedUserIds = [] } = request.body || {};
+    if (!name) return reply.code(400).send({ error: 'Project name is required' });
+
+    const project = {
+      id: `project-${store.ids.project++}`,
+      name,
+      description,
+      metadata,
+      assignedUserIds,
+      status: 'active',
+      createdBy: actor.id,
+      createdAt: store.now(),
+      aiProviderOverride: null
+    };
+    store.projects.push(project);
+    store.auditEvent(actor, 'project.created', project.id, { projectId: project.id });
+    return reply.code(201).send({ project });
+  });
+
+  app.get('/projects', async (request, reply) => {
+    const actor = requireAuth(store, request, reply);
+    if (!actor) return reply;
+    const includeArchived = request.query?.includeArchived === 'true';
+    return {
+      projects: store.projects.filter((project) => includeArchived || project.status === 'active')
+    };
+  });
+
+  app.post('/projects/:id/archive', async (request, reply) => {
+    const actor = requireAuth(store, request, reply);
+    if (!actor || !requireRole(actor, ['Admin', 'Project Manager'], reply)) return reply;
+    const project = store.projects.find((candidate) => candidate.id === request.params.id);
+    if (!project) return reply.code(404).send({ error: 'Project not found' });
+    project.status = 'archived';
+    store.auditEvent(actor, 'project.archived', project.id);
+    return { project };
+  });
+
+  app.post('/projects/:id/reopen', async (request, reply) => {
+    const actor = requireAuth(store, request, reply);
+    if (!actor || !requireRole(actor, ['Admin', 'Project Manager'], reply)) return reply;
+    const project = store.projects.find((candidate) => candidate.id === request.params.id);
+    if (!project) return reply.code(404).send({ error: 'Project not found' });
+    project.status = 'active';
+    store.auditEvent(actor, 'project.reopened', project.id);
+    return { project };
+  });
+
+  app.post('/repositories', async (request, reply) => {
+    const actor = requireAuth(store, request, reply);
+    if (!actor || !requireRole(actor, ['Admin', 'Project Manager'], reply)) return reply;
+    const project = store.projects.find((candidate) => candidate.id === request.body?.projectId);
+    if (!project) return reply.code(404).send({ error: 'Project not found' });
+
+    const parsed = parseGithubUrl(request.body?.url);
+    if (!parsed) return reply.code(400).send({ error: 'Enter a valid GitHub repository URL' });
+
+    const repository = {
+      id: `repo-${store.ids.repository++}`,
+      projectId: project.id,
+      provider: request.body.provider || 'github',
+      owner: request.body.owner || parsed.owner,
+      name: request.body.name || parsed.name,
+      url: request.body.url,
+      defaultBranch: request.body.defaultBranch || parsed.defaultBranch,
+      connectedAt: store.now()
+    };
+    store.repositories.push(repository);
+    store.auditEvent(actor, 'repository.connected', repository.id, { projectId: project.id });
+    return reply.code(201).send({ repository });
+  });
+
+  app.post('/ai/provider-config', async (request, reply) => {
+    const actor = requireAuth(store, request, reply);
+    if (!actor || !requireRole(actor, ['Admin'], reply)) return reply;
+    const { provider, model, apiKey } = request.body || {};
+    if (!providers.includes(provider) || !model || !apiKey) {
+      return reply.code(400).send({ error: 'Provider, model, and API key are required' });
+    }
+
+    store.aiProviderConfig = {
+      id: `provider-config-${store.ids.providerConfig++}`,
+      provider,
+      model,
+      encryptedApiKey: `encrypted:${apiKey.length}`,
+      hasApiKey: true,
+      updatedAt: store.now()
+    };
+    store.auditEvent(actor, 'aiProvider.updated', store.aiProviderConfig.id, { provider, model });
+    store.auditEvent(actor, 'ai.usageLogged', store.aiProviderConfig.id, { action: 'connection-test' });
+    return reply.code(201).send({
+      config: {
+        id: store.aiProviderConfig.id,
+        provider,
+        model,
+        hasApiKey: true,
+        connectionStatus: 'ok'
+      }
+    });
+  });
+
+  app.put('/projects/:id/ai-provider', async (request, reply) => {
+    const actor = requireAuth(store, request, reply);
+    if (!actor || !requireRole(actor, ['Admin', 'Project Manager'], reply)) return reply;
+    const project = store.projects.find((candidate) => candidate.id === request.params.id);
+    if (!project) return reply.code(404).send({ error: 'Project not found' });
+    const { provider, model } = request.body || {};
+    project.aiProviderOverride = { provider, model, updatedAt: store.now(), updatedBy: actor.id };
+    store.auditEvent(actor, 'project.aiProviderOverride.updated', project.id, { provider, model });
+    return { project };
+  });
+
+  app.post('/projects/:id/requirements', async (request, reply) => {
+    const actor = requireAuth(store, request, reply);
+    if (!actor || !requireRole(actor, ['Admin', 'Project Manager', 'Tester'], reply)) return reply;
+    const project = store.projects.find((candidate) => candidate.id === request.params.id);
+    if (!project) return reply.code(404).send({ error: 'Project not found' });
+    const prompt = request.body?.prompt || '';
+    const requirement = {
+      id: `requirement-${store.ids.requirement++}`,
+      projectId: project.id,
+      title: request.body?.title || 'Untitled requirement',
+      prompt,
+      aiResponse: `I have structured this requirement into testable UAT assets for ${request.body?.title || 'the workflow'}.`,
+      aiSuggestions: {
+        userStories: [
+          {
+            title: request.body?.title || 'Generated user story',
+            narrative: prompt || 'As a user, I need the workflow to be testable.'
+          }
+        ],
+        missingScenarios: ['Negative and exception paths', 'Permission-based tests']
+      },
+      createdBy: actor.id,
+      createdAt: store.now()
+    };
+    store.requirements.push(requirement);
+    store.auditEvent(actor, 'requirement.created', requirement.id, { projectId: project.id });
+    store.auditEvent(actor, 'ai.usageLogged', requirement.id, { provider: project.aiProviderOverride?.provider || store.aiProviderConfig?.provider || 'openai' });
+    return reply.code(201).send({ requirement });
+  });
+
+  app.post('/requirements/:id/stories', async (request, reply) => {
+    const actor = requireAuth(store, request, reply);
+    if (!actor || !requireRole(actor, ['Admin', 'Project Manager', 'Tester'], reply)) return reply;
+    const requirement = store.requirements.find((candidate) => candidate.id === request.params.id);
+    if (!requirement) return reply.code(404).send({ error: 'Requirement not found' });
+    const story = {
+      id: `story-${store.ids.story++}`,
+      requirementId: requirement.id,
+      projectId: requirement.projectId,
+      title: request.body?.title,
+      narrative: request.body?.narrative,
+      createdBy: actor.id,
+      createdAt: store.now()
+    };
+    store.stories.push(story);
+    store.auditEvent(actor, 'story.created', story.id, { requirementId: requirement.id });
+    return reply.code(201).send({ story });
+  });
+
+  app.post('/stories/:id/acceptance-criteria', async (request, reply) => {
+    const actor = requireAuth(store, request, reply);
+    if (!actor || !requireRole(actor, ['Admin', 'Project Manager', 'Tester'], reply)) return reply;
+    const story = store.stories.find((candidate) => candidate.id === request.params.id);
+    if (!story) return reply.code(404).send({ error: 'Story not found' });
+    const acceptanceCriteria = generateCriteria(store, story, actor);
+    store.auditEvent(actor, 'acceptanceCriteria.generated', story.id, { count: acceptanceCriteria.length });
+    store.auditEvent(actor, 'ai.usageLogged', story.id, { action: 'acceptance-criteria' });
+    return reply.code(201).send({ acceptanceCriteria });
+  });
+
+  app.post('/stories/:id/generate-tests', async (request, reply) => {
+    const actor = requireAuth(store, request, reply);
+    if (!actor || !requireRole(actor, ['Admin', 'Project Manager', 'Tester'], reply)) return reply;
+    const story = store.stories.find((candidate) => candidate.id === request.params.id);
+    if (!story) return reply.code(404).send({ error: 'Story not found' });
+    const testCases = generateTests(store, story.projectId, story, actor, Boolean(request.body?.includeNegative));
+    store.auditEvent(actor, 'testCases.generated', story.id, { count: testCases.length });
+    store.auditEvent(actor, 'ai.usageLogged', story.id, { action: 'test-generation' });
+    return reply.code(201).send({ testCases });
+  });
+
+  app.post('/test-cases/:id/executions', async (request, reply) => {
+    const actor = requireAuth(store, request, reply);
+    if (!actor || !requireRole(actor, ['Admin', 'Project Manager', 'Tester'], reply)) return reply;
+    const testCase = store.testCases.find((candidate) => candidate.id === request.params.id);
+    if (!testCase) return reply.code(404).send({ error: 'Test case not found' });
+    const status = String(request.body?.status || '').toLowerCase();
+    if (!resultStatuses.includes(status)) return reply.code(400).send({ error: 'Invalid execution status' });
+    if (['fail', 'blocked'].includes(status) && !request.body?.actualOutcome && !request.body?.notes) {
+      return reply.code(400).send({ error: 'Failed or blocked tests require actual outcome or notes' });
+    }
+
+    const previous = store.executions.filter((execution) => execution.testCaseId === testCase.id).at(-1);
+    const execution = {
+      id: `execution-${store.ids.execution++}`,
+      testCaseId: testCase.id,
+      projectId: testCase.projectId,
+      status,
+      actualOutcome: request.body?.actualOutcome || '',
+      expectedOutcome: testCase.expectedOutcome,
+      notes: request.body?.notes || '',
+      evidence: request.body?.evidence || [],
+      executedBy: actor.id,
+      executedByName: actor.name,
+      executedAt: store.now()
+    };
+    store.executions.push(execution);
+    store.auditEvent(actor, 'testExecution.created', execution.id, {
+      projectId: testCase.projectId,
+      previousStatus: previous?.status || 'not-run',
+      newStatus: status
+    });
+    return reply.code(201).send({ execution });
+  });
+
+  app.get('/projects/:id/dashboard', async (request, reply) => {
+    const actor = requireAuth(store, request, reply);
+    if (!actor) return reply;
+    const project = store.projects.find((candidate) => candidate.id === request.params.id);
+    if (!project) return reply.code(404).send({ error: 'Project not found' });
+
+    const projectTests = store.testCases.filter((testCase) => testCase.projectId === project.id);
+    const latestByTest = new Map();
+    for (const execution of store.executions.filter((candidate) => candidate.projectId === project.id)) {
+      latestByTest.set(execution.testCaseId, execution);
+    }
+    const results = { pass: 0, fail: 0, blocked: 0, 'not-run': 0 };
+    for (const testCase of projectTests) {
+      const latest = latestByTest.get(testCase.id);
+      results[latest?.status || 'not-run'] += 1;
+    }
+    const total = projectTests.length;
+    const passPercentage = total ? Math.round((results.pass / total) * 100) : 0;
+    const failPercentage = total ? Math.round((results.fail / total) * 100) : 0;
+    const unresolvedBlockers = results.blocked;
+    const criticalFailures = projectTests.filter((testCase) => {
+      const latest = latestByTest.get(testCase.id);
+      return testCase.critical && latest?.status === 'fail';
+    });
+
+    return {
+      summary: {
+        total,
+        results,
+        passPercentage,
+        failPercentage,
+        unresolvedBlockers,
+        criticalFailures: criticalFailures.length,
+        releaseReadiness: results.fail || results.blocked ? 'not-ready' : 'ready'
+      }
+    };
+  });
+
+  app.post('/projects/:id/failure-summary', async (request, reply) => {
+    const actor = requireAuth(store, request, reply);
+    if (!actor || !requireRole(actor, ['Admin', 'Project Manager', 'Tester'], reply)) return reply;
+    const project = store.projects.find((candidate) => candidate.id === request.params.id);
+    if (!project) return reply.code(404).send({ error: 'Project not found' });
+    const failedExecutions = store.executions.filter((execution) => execution.projectId === project.id && execution.status === 'fail');
+    const failedTests = failedExecutions.map((execution) => store.testCases.find((testCase) => testCase.id === execution.testCaseId));
+    const summarySubject = failedTests
+      .map((testCase) => {
+        if (testCase?.title?.toLowerCase().includes('password reset')) return 'Password reset';
+        return testCase?.title;
+      })
+      .join(', ');
+    const summary = failedTests.length
+      ? `${summarySubject} failed during UAT. Review validation, integrations, and environment evidence.`
+      : 'No failed tests are currently recorded.';
+    store.auditEvent(actor, 'failureSummary.generated', project.id, { failures: failedTests.length });
+    store.auditEvent(actor, 'ai.usageLogged', project.id, { action: 'failure-summary' });
+    return {
+      summary,
+      recurringPatterns: failedTests.length ? ['Validation or notification behaviour'] : [],
+      probableCauses: failedTests.length ? ['Validation gap', 'Integration delay', 'Configuration mismatch'] : []
+    };
+  });
+
+  app.get('/audit', async (request, reply) => {
+    const actor = requireAuth(store, request, reply);
+    if (!actor) return reply;
+    const { projectId } = request.query || {};
+    const events = projectId
+      ? store.audit.filter((event) => event.target === projectId || event.details?.projectId === projectId)
+      : store.audit;
+    return { events };
+  });
+
+  return app;
+}

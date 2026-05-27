@@ -1,0 +1,21 @@
+{
+  "name": "functional-testing-tool",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI-assisted functional testing and UAT management platform.",
+  "type": "module",
+  "workspaces": [
+    "apps/api",
+    "apps/web"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace @functional-testing-tool/api & npm run dev --workspace @functional-testing-tool/web",
+    "test": "npm run test --workspaces",
+    "test:api": "npm run test --workspace @functional-testing-tool/api",
+    "test:web": "npm run test --workspace @functional-testing-tool/web",
+    "build": "npm run build --workspaces"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

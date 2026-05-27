@@ -1,0 +1,21 @@
+{
+  "name": "@functional-testing-tool/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "node src/server.js",
+    "start": "node src/server.js",
+    "test": "vitest run",
+    "build": "node --check src/server.js && node --check src/app.js"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.2.0",
+    "@fastify/multipart": "^10.0.0",
+    "fastify": "^5.8.5"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.7"
+  }
+}
