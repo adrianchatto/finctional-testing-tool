@@ -15,7 +15,7 @@ services:
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
       EVIDENCE_BUCKET: ${EVIDENCE_BUCKET:-uat-evidence}
     ports:
-      - "${API_HOST_PORT:-3002}:3001"
+      - "${API_HOST_PORT:-18001}:3001"
     healthcheck:
       test:
         [
@@ -37,7 +37,7 @@ services:
         VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
         VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
     ports:
-      - "8080:80"
+      - "${WEB_HOST_PORT:-18080}:80"
     depends_on:
       api:
         condition: service_healthy
