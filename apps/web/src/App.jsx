@@ -11,11 +11,7 @@ import {
   ShieldCheck,
   Users
 } from 'lucide-react';
-
-const admin = {
-  name: 'Priya Shah',
-  roles: ['Admin', 'Project Manager', 'Tester', 'Viewer']
-};
+import { apiRequest } from './api.js';
 
 const providers = ['OpenAI', 'Anthropic Claude', 'Google Gemini', 'Azure OpenAI', 'AWS Bedrock'];
 
@@ -29,6 +25,17 @@ function createAudit(message) {
 
 export function App() {
   const [signedIn, setSignedIn] = useState(false);
+  const [token, setToken] = useState('');
+  const [currentUser, setCurrentUser] = useState(null);
+  const [loginEmail, setLoginEmail] = useState('admin@example.com');
+  const [loginPassword, setLoginPassword] = useState('password');
+  const [authError, setAuthError] = useState('');
+  const [projects, setProjects] = useState([]);
+  const [selectedProjectId, setSelectedProjectId] = useState('');
+  const [projectName, setProjectName] = useState('');
+  const [projectDescription, setProjectDescription] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
+  const [projectError, setProjectError] = useState('');
   const [repositoryUrl, setRepositoryUrl] = useState('https://github.com/acme/checkout-modernisation');
   const [connectedRepository, setConnectedRepository] = useState(null);
   const [requirementPrompt, setRequirementPrompt] = useState(
@@ -51,9 +58,15 @@ export function App() {
   const [projectModel, setProjectModel] = useState('gpt-4o');
   const [savedAiSettings, setSavedAiSettings] = useState(null);
   const [audit, setAudit] = useState([
-    createAudit('Project created by Priya Shah'),
+    createAudit('Project workspace initialised'),
     createAudit('Audit history cannot be deleted')
   ]);
+
+  const activeProjects = projects.filter((project) => project.status === 'active');
+  const visibleProjects = showArchived ? projects : activeProjects;
+  const selectedProject = projects.find((project) => project.id === selectedProjectId) || activeProjects[0] || null;
+  const displayName = currentUser?.name || 'Signed-in user';
+  const userRoles = currentUser?.roles || [];
 
   const repoName = useMemo(() => {
     if (!connectedRepository) return 'No repository connected';
@@ -72,18 +85,82 @@ export function App() {
     setAudit((current) => [createAudit(message), ...current]);
   }
 
-  function signIn() {
-    setSignedIn(true);
-    addAudit('Login completed by Priya Shah');
+  async function loadProjects(nextToken, includeArchived = showArchived) {
+    const payload = await apiRequest(`/projects${includeArchived ? '?includeArchived=true' : ''}`, {
+      token: nextToken
+    });
+    setProjects(payload.projects);
+    setSelectedProjectId((current) => {
+      if (payload.projects.some((project) => project.id === current)) return current;
+      return payload.projects.find((project) => project.status === 'active')?.id || payload.projects[0]?.id || '';
+    });
+    return payload.projects;
+  }
+
+  async function signIn(event) {
+    event?.preventDefault();
+    setAuthError('');
+    try {
+      const payload = await apiRequest('/auth/login', {
+        method: 'POST',
+        body: { email: loginEmail, password: loginPassword }
+      });
+      setToken(payload.token);
+      setCurrentUser(payload.user);
+      setSignedIn(true);
+      await loadProjects(payload.token, showArchived);
+      addAudit(`Login completed by ${payload.user.name}`);
+    } catch (error) {
+      setAuthError(error.message);
+    }
   }
 
   function signOut() {
     setSignedIn(false);
+    setToken('');
+    setCurrentUser(null);
+    setProjects([]);
+    setSelectedProjectId('');
   }
 
   function connectRepository() {
     setConnectedRepository(repositoryUrl);
-    addAudit('Repository connected by Priya Shah');
+    addAudit(`Repository connected by ${displayName}`);
+  }
+
+  async function createProject(event) {
+    event.preventDefault();
+    setProjectError('');
+    try {
+      const payload = await apiRequest('/projects', {
+        method: 'POST',
+        token,
+        body: {
+          name: projectName,
+          description: projectDescription
+        }
+      });
+      setProjects((current) => [payload.project, ...current]);
+      setSelectedProjectId(payload.project.id);
+      setProjectName('');
+      setProjectDescription('');
+      addAudit(`Project created by ${displayName}: ${payload.project.name}`);
+    } catch (error) {
+      setProjectError(error.message);
+    }
+  }
+
+  async function archiveProject(projectId) {
+    const payload = await apiRequest(`/projects/${projectId}/archive`, { method: 'POST', token });
+    setProjects((current) => current.map((project) => (project.id === payload.project.id ? payload.project : project)));
+    addAudit(`Project archived by ${displayName}: ${payload.project.name}`);
+  }
+
+  async function reopenProject(projectId) {
+    const payload = await apiRequest(`/projects/${projectId}/reopen`, { method: 'POST', token });
+    setProjects((current) => current.map((project) => (project.id === payload.project.id ? payload.project : project)));
+    setSelectedProjectId(payload.project.id);
+    addAudit(`Project reopened by ${displayName}: ${payload.project.name}`);
   }
 
   function generateTestingAssets() {
@@ -93,7 +170,7 @@ export function App() {
     setCriterion(
       `${subject[0].toUpperCase()}${subject.slice(1)} require valid token, permissions, and measurable acceptance checks.`
     );
-    addAudit('AI generated editable stories, acceptance criteria, tests, and negative scenarios by Priya Shah');
+    addAudit(`AI generated editable stories, acceptance criteria, tests, and negative scenarios by ${displayName}`);
   }
 
   function saveExecution() {
@@ -105,7 +182,7 @@ export function App() {
       evidenceNotes
     };
     setSavedExecution(execution);
-    addAudit(`Execution marked ${executionResult} by Priya Shah`);
+    addAudit(`Execution marked ${executionResult} by ${displayName}`);
   }
 
   function saveAiSettings() {
@@ -117,7 +194,7 @@ export function App() {
       useOverride
     };
     setSavedAiSettings(settings);
-    addAudit('AI settings updated by Priya Shah');
+    addAudit(`AI settings updated by ${displayName}`);
   }
 
   if (!signedIn) {
@@ -130,11 +207,23 @@ export function App() {
             Sign in to manage projects, generate reviewed testing assets, execute manual UAT, and report release
             confidence.
           </p>
-          <div className="login-actions">
-            <button className="primary-button" type="button" onClick={signIn}>
+          <form className="login-form" onSubmit={signIn}>
+            <label htmlFor="login-email">Email</label>
+            <input id="login-email" value={loginEmail} onChange={(event) => setLoginEmail(event.target.value)} />
+            <label htmlFor="login-password">Password</label>
+            <input
+              id="login-password"
+              type="password"
+              value={loginPassword}
+              onChange={(event) => setLoginPassword(event.target.value)}
+            />
+            {authError && <p className="form-error">{authError}</p>}
+            <button className="primary-button" type="submit">
               <LogIn size={18} aria-hidden="true" />
-              Sign in as admin
+              Sign in
             </button>
+          </form>
+          <div className="login-actions">
             <span className="status-pill neutral">Signed out</span>
           </div>
         </section>
@@ -153,7 +242,7 @@ export function App() {
           </p>
         </div>
         <div className="session-panel" aria-label="Session status">
-          <p className="label">Signed in as {admin.name}</p>
+          <p className="label">Signed in as {displayName}</p>
           <button className="secondary-button" type="button" onClick={signOut}>
             <LogOut size={16} aria-hidden="true" />
             Sign out
@@ -169,11 +258,81 @@ export function App() {
           </div>
           <p className="section-copy">Role-based access control is active for the MVP workspace.</p>
           <div className="role-list">
-            {admin.roles.map((role) => (
+            {userRoles.map((role) => (
               <span className="role-chip" key={role}>
                 {role}
               </span>
             ))}
+          </div>
+        </section>
+
+        <section className="panel span-2" aria-label="Project management">
+          <div className="section-title">
+            <Activity size={18} aria-hidden="true" />
+            <h2>Project management</h2>
+          </div>
+          <form className="project-create-form" onSubmit={createProject}>
+            <label htmlFor="project-name">Project name</label>
+            <input
+              id="project-name"
+              value={projectName}
+              onChange={(event) => setProjectName(event.target.value)}
+              placeholder="e.g. UAT Release 1"
+            />
+            <label htmlFor="project-description">Project description</label>
+            <textarea
+              id="project-description"
+              rows="3"
+              value={projectDescription}
+              onChange={(event) => setProjectDescription(event.target.value)}
+              placeholder="Describe the workflow, release, or customer scope."
+            />
+            {projectError && <p className="form-error">{projectError}</p>}
+            <button className="primary-button" type="submit">
+              Create project
+            </button>
+          </form>
+          <label className="checkbox-row project-toggle">
+            <input
+              type="checkbox"
+              checked={showArchived}
+              onChange={async (event) => {
+                setShowArchived(event.target.checked);
+                await loadProjects(token, event.target.checked);
+              }}
+            />
+            Show archived projects
+          </label>
+          <div className="project-list">
+            {visibleProjects.length === 0 ? (
+              <p className="section-copy">No projects yet. Create one to start UAT planning.</p>
+            ) : (
+              visibleProjects.map((project) => (
+                <article className="project-row" key={project.id}>
+                  <button
+                    className="project-select"
+                    type="button"
+                    onClick={() => setSelectedProjectId(project.id)}
+                    aria-pressed={selectedProjectId === project.id}
+                  >
+                    <strong>{project.name}</strong>
+                    <span>{project.description || 'No description provided.'}</span>
+                  </button>
+                  <span className={project.status === 'active' ? 'status-pill success' : 'status-pill neutral'}>
+                    {project.status}
+                  </span>
+                  {project.status === 'active' ? (
+                    <button className="secondary-button" type="button" onClick={() => archiveProject(project.id)}>
+                      Archive
+                    </button>
+                  ) : (
+                    <button className="secondary-button" type="button" onClick={() => reopenProject(project.id)}>
+                      Reopen
+                    </button>
+                  )}
+                </article>
+              ))
+            )}
           </div>
         </section>
 
@@ -182,9 +341,11 @@ export function App() {
             <div>
               <div className="section-title">
                 <Activity size={18} aria-hidden="true" />
-                <h2>Checkout Modernisation</h2>
+                <h2>{selectedProject?.name || 'No active project'}</h2>
               </div>
-              <p className="section-copy">Project dashboard</p>
+              <p className="section-copy">
+                {selectedProject?.description || 'Create or select a project to start tracking release confidence.'}
+              </p>
             </div>
             <div className="readiness">
               <span>72%</span>

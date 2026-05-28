@@ -1,14 +1,88 @@
 import { cleanup, render, screen, within } from '@testing-library/react';
 import * as matchers from '@testing-library/jest-dom/matchers';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App.jsx';
 
 expect.extend(matchers);
 
+let projects;
+
+function jsonResponse(payload, ok = true, status = 200) {
+  return {
+    ok,
+    status,
+    json: async () => payload
+  };
+}
+
+beforeEach(() => {
+  projects = [];
+  global.fetch = vi.fn(async (url, options = {}) => {
+    const pathname = new URL(url).pathname;
+    const body = options.body ? JSON.parse(options.body) : {};
+
+    if (pathname === '/auth/login') {
+      if (body.email !== 'admin@example.com' || body.password !== 'password') {
+        return jsonResponse({ error: 'Invalid credentials' }, false, 401);
+      }
+      return jsonResponse({
+        token: 'test-token',
+        user: {
+          id: 'user-1',
+          name: 'Admin User',
+          email: 'admin@example.com',
+          roles: ['Admin', 'Project Manager', 'Tester', 'Viewer'],
+          disabled: false
+        }
+      });
+    }
+
+    if (pathname === '/projects' && options.method === 'POST') {
+      const project = {
+        id: `project-${projects.length + 1}`,
+        name: body.name,
+        description: body.description,
+        status: 'active',
+        createdAt: new Date().toISOString()
+      };
+      projects = [project, ...projects];
+      return jsonResponse({ project }, true, 201);
+    }
+
+    if (pathname === '/projects') {
+      const includeArchived = new URL(url).searchParams.get('includeArchived') === 'true';
+      return jsonResponse({
+        projects: includeArchived ? projects : projects.filter((project) => project.status === 'active')
+      });
+    }
+
+    const archiveMatch = pathname.match(/^\/projects\/([^/]+)\/archive$/);
+    if (archiveMatch) {
+      const project = projects.find((candidate) => candidate.id === archiveMatch[1]);
+      project.status = 'archived';
+      return jsonResponse({ project });
+    }
+
+    const reopenMatch = pathname.match(/^\/projects\/([^/]+)\/reopen$/);
+    if (reopenMatch) {
+      const project = projects.find((candidate) => candidate.id === reopenMatch[1]);
+      project.status = 'active';
+      return jsonResponse({ project });
+    }
+
+    return jsonResponse({ error: 'Not found' }, false, 404);
+  });
+});
+
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
 });
+
+async function signIn(user) {
+  await user.click(screen.getByRole('button', { name: /^Sign in$/i }));
+}
 
 describe('Functional testing platform MVP', () => {
   it('supports login, role-aware user admin, and project dashboard visibility', async () => {
@@ -24,9 +98,9 @@ describe('Functional testing platform MVP', () => {
     expect(screen.queryByRole('region', { name: /User administration/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('region', { name: /Project dashboard/i })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: /Sign in as admin/i }));
+    await signIn(user);
 
-    expect(screen.getByText(/Signed in as Priya Shah/i)).toBeInTheDocument();
+    expect(screen.getByText(/Signed in as Admin User/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Sign out/i })).toBeEnabled();
 
     const userAdmin = screen.getByRole('region', { name: /User administration/i });
@@ -35,17 +109,42 @@ describe('Functional testing platform MVP', () => {
     expect(within(userAdmin).getByText(/^Tester$/i)).toBeInTheDocument();
     expect(within(userAdmin).getByText(/^Viewer$/i)).toBeInTheDocument();
 
+    const projectManagement = screen.getByRole('region', { name: /Project management/i });
+    expect(within(projectManagement).getByText(/No projects yet/i)).toBeInTheDocument();
+  });
+
+  it('creates, selects, archives, and reopens projects through the API-backed project workflow', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await signIn(user);
+    await user.type(screen.getByLabelText(/Project name/i), 'Claims Portal UAT');
+    await user.type(screen.getByLabelText(/Project description/i), 'Regression coverage for release one.');
+    await user.click(screen.getByRole('button', { name: /Create project/i }));
+
+    const projectManagement = screen.getByRole('region', { name: /Project management/i });
+    expect(within(projectManagement).getByText(/Claims Portal UAT/i)).toBeInTheDocument();
+    expect(within(projectManagement).getByText(/Regression coverage for release one/i)).toBeInTheDocument();
+
     const dashboard = screen.getByRole('region', { name: /Project dashboard/i });
-    expect(within(dashboard).getByText(/Checkout Modernisation/i)).toBeInTheDocument();
+    expect(within(dashboard).getByText(/Claims Portal UAT/i)).toBeInTheDocument();
     expect(within(dashboard).getByText(/Release readiness/i)).toBeInTheDocument();
     expect(within(dashboard).getByText(/72%/i)).toBeInTheDocument();
+
+    await user.click(within(projectManagement).getByRole('button', { name: /Archive/i }));
+    expect(within(projectManagement).queryByText(/Claims Portal UAT/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('checkbox', { name: /Show archived projects/i }));
+    expect(within(projectManagement).getAllByText(/^archived$/i).length).toBeGreaterThan(0);
+    await user.click(within(projectManagement).getByRole('button', { name: /Reopen/i }));
+    expect(within(projectManagement).getByText(/active/i)).toBeInTheDocument();
   });
 
   it('connects a GitHub repository to the active project and records audit metadata', async () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(screen.getByRole('button', { name: /Sign in as admin/i }));
+    await signIn(user);
     await user.clear(screen.getByLabelText(/Repository URL/i));
     await user.type(screen.getByLabelText(/Repository URL/i), 'https://github.com/acme/checkout-uplift');
     await user.click(screen.getByRole('button', { name: /Connect repository/i }));
@@ -55,14 +154,14 @@ describe('Functional testing platform MVP', () => {
     expect(within(integration).getByText(/Connected/i)).toBeInTheDocument();
 
     const auditLog = screen.getByRole('region', { name: /Audit log/i });
-    expect(within(auditLog).getByText(/Repository connected by Priya Shah/i)).toBeInTheDocument();
+    expect(within(auditLog).getByText(/Repository connected by Admin User/i)).toBeInTheDocument();
   });
 
   it('generates editable acceptance criteria, tests, and negative scenarios from AI collaboration', async () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(screen.getByRole('button', { name: /Sign in as admin/i }));
+    await signIn(user);
     await user.clear(screen.getByLabelText(/Requirement prompt/i));
     await user.type(
       screen.getByLabelText(/Requirement prompt/i),
@@ -93,7 +192,7 @@ describe('Functional testing platform MVP', () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(screen.getByRole('button', { name: /Sign in as admin/i }));
+    await signIn(user);
     await user.selectOptions(screen.getByLabelText(/Execution result/i), 'Fail');
     await user.clear(screen.getByLabelText(/Actual outcome/i));
     await user.type(screen.getByLabelText(/Actual outcome/i), 'Wallet token expired but checkout still completed.');
@@ -127,14 +226,14 @@ describe('Functional testing platform MVP', () => {
     expect(within(reports).getByText(/Release blocked pending review/i)).toBeInTheDocument();
 
     const auditLog = screen.getByRole('region', { name: /Audit log/i });
-    expect(within(auditLog).getByText(/Execution marked Fail by Priya Shah/i)).toBeInTheDocument();
+    expect(within(auditLog).getByText(/Execution marked Fail by Admin User/i)).toBeInTheDocument();
   });
 
   it('configures Bring Your Own AI provider defaults and project overrides', async () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(screen.getByRole('button', { name: /Sign in as admin/i }));
+    await signIn(user);
     await user.selectOptions(screen.getByLabelText(/Default AI provider/i), 'Anthropic Claude');
     await user.clear(screen.getByLabelText(/Default model/i));
     await user.type(screen.getByLabelText(/Default model/i), 'claude-3-5-sonnet');
@@ -149,6 +248,6 @@ describe('Functional testing platform MVP', () => {
     expect(within(settings).getByText(/Project override: Azure OpenAI \/ gpt-4o-enterprise/i)).toBeInTheDocument();
 
     const auditLog = screen.getByRole('region', { name: /Audit log/i });
-    expect(within(auditLog).getByText(/AI settings updated by Priya Shah/i)).toBeInTheDocument();
+    expect(within(auditLog).getByText(/AI settings updated by Admin User/i)).toBeInTheDocument();
   });
 });

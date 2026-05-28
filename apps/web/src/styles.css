@@ -68,6 +68,23 @@ textarea:focus-visible {
   margin-top: 28px;
 }
 
+.login-form,
+.project-create-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.form-error {
+  background: #fff4f3;
+  border: 1px solid #efc0bd;
+  border-radius: 6px;
+  color: #9d2f2a;
+  font-weight: 700;
+  margin-bottom: 0;
+  padding: 10px 12px;
+}
+
 .workspace-header {
   align-items: flex-start;
   display: flex;
@@ -372,6 +389,50 @@ textarea {
   padding-top: 14px;
 }
 
+.project-toggle {
+  margin: 16px 0;
+}
+
+.project-list {
+  display: grid;
+  gap: 10px;
+}
+
+.project-row {
+  align-items: center;
+  border: 1px solid #dfe8ea;
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  padding: 10px;
+}
+
+.project-select {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  text-align: left;
+}
+
+.project-select[aria-pressed="true"] {
+  background: #f2f7f5;
+  border-radius: 6px;
+}
+
+.project-select strong,
+.project-select span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.project-select span {
+  color: #526a6f;
+}
+
 .status-dot {
   background: #9aa9ad;
   border-radius: 999px;
@@ -519,6 +580,7 @@ textarea {
   .asset-columns,
   .metric-row,
   .execution-form,
+  .project-row,
   .report-line,
   .audit-list li {
     grid-template-columns: 1fr;
