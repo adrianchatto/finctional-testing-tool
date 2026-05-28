@@ -24,6 +24,58 @@ describe('functional testing API MVP', () => {
     expect(login.statusCode).toBe(200);
     const adminToken = login.json().token;
     expect(login.json().user.roles).toContain('Admin');
+    expect(login.json().user.passwordHash).toBeUndefined();
+
+    const weakPasswordChange = await request(app, adminToken, {
+      method: 'PATCH',
+      url: '/auth/password',
+      payload: {
+        currentPassword: 'password',
+        newPassword: 'password',
+        confirmPassword: 'password'
+      }
+    });
+    expect(weakPasswordChange.statusCode).toBe(400);
+    expect(weakPasswordChange.json().error).toContain('at least 12 characters');
+
+    const wrongCurrentPasswordChange = await request(app, adminToken, {
+      method: 'PATCH',
+      url: '/auth/password',
+      payload: {
+        currentPassword: 'wrong-password',
+        newPassword: 'Better-Password-123!',
+        confirmPassword: 'Better-Password-123!'
+      }
+    });
+    expect(wrongCurrentPasswordChange.statusCode).toBe(400);
+    expect(wrongCurrentPasswordChange.json().error).toBe('Current password is incorrect');
+
+    const passwordChanged = await request(app, adminToken, {
+      method: 'PATCH',
+      url: '/auth/password',
+      payload: {
+        currentPassword: 'password',
+        newPassword: 'Better-Password-123!',
+        confirmPassword: 'Better-Password-123!'
+      }
+    });
+    expect(passwordChanged.statusCode).toBe(200);
+    expect(passwordChanged.json().user.passwordHash).toBeUndefined();
+    expect(passwordChanged.json().user.passwordChangedAt).toBeTruthy();
+
+    const oldPasswordLogin = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: { email: 'admin@example.com', password: 'password' }
+    });
+    expect(oldPasswordLogin.statusCode).toBe(401);
+
+    const newPasswordLogin = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: { email: 'admin@example.com', password: 'Better-Password-123!' }
+    });
+    expect(newPasswordLogin.statusCode).toBe(200);
 
     const viewerLogin = await app.inject({
       method: 'POST',

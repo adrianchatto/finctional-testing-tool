@@ -30,6 +30,10 @@ export function App() {
   const [loginEmail, setLoginEmail] = useState('admin@example.com');
   const [loginPassword, setLoginPassword] = useState('password');
   const [authError, setAuthError] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordStatus, setPasswordStatus] = useState(null);
   const [projects, setProjects] = useState([]);
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [projectName, setProjectName] = useState('');
@@ -121,6 +125,34 @@ export function App() {
     setCurrentUser(null);
     setProjects([]);
     setSelectedProjectId('');
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+    setPasswordStatus(null);
+  }
+
+  async function changePassword(event) {
+    event.preventDefault();
+    setPasswordStatus(null);
+    try {
+      const payload = await apiRequest('/auth/password', {
+        method: 'PATCH',
+        token,
+        body: {
+          currentPassword,
+          newPassword,
+          confirmPassword
+        }
+      });
+      setCurrentUser(payload.user);
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setPasswordStatus({ type: 'success', message: 'Password updated successfully.' });
+      addAudit(`Password changed by ${displayName}`);
+    } catch (error) {
+      setPasswordStatus({ type: 'error', message: error.message });
+    }
   }
 
   function connectRepository() {
@@ -264,6 +296,45 @@ export function App() {
               </span>
             ))}
           </div>
+        </section>
+
+        <section className="panel" aria-label="Account security">
+          <div className="section-title">
+            <KeyRound size={18} aria-hidden="true" />
+            <h2>Account security</h2>
+          </div>
+          <p className="section-copy">Update your password with a stronger credential.</p>
+          <form className="stack-form" onSubmit={changePassword}>
+            <label htmlFor="current-password">Current password</label>
+            <input
+              id="current-password"
+              type="password"
+              value={currentPassword}
+              onChange={(event) => setCurrentPassword(event.target.value)}
+            />
+            <label htmlFor="new-password">New password</label>
+            <input
+              id="new-password"
+              type="password"
+              value={newPassword}
+              onChange={(event) => setNewPassword(event.target.value)}
+            />
+            <label htmlFor="confirm-password">Confirm new password</label>
+            <input
+              id="confirm-password"
+              type="password"
+              value={confirmPassword}
+              onChange={(event) => setConfirmPassword(event.target.value)}
+            />
+            {passwordStatus && (
+              <p className={passwordStatus.type === 'success' ? 'form-success' : 'form-error'}>
+                {passwordStatus.message}
+              </p>
+            )}
+            <button className="primary-button" type="submit">
+              Update password
+            </button>
+          </form>
         </section>
 
         <section className="panel span-2" aria-label="Project management">

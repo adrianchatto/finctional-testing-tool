@@ -1,11 +1,39 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
+import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { checkDatabase, createDatabasePool } from './db.js';
 
 const roles = ['Admin', 'Project Manager', 'Tester', 'Viewer'];
 const providers = ['openai', 'anthropic', 'gemini', 'azure-openai', 'aws-bedrock'];
 const resultStatuses = ['pass', 'fail', 'blocked', 'not-run'];
+
+function hashPassword(password) {
+  const salt = randomBytes(16).toString('hex');
+  const derivedKey = scryptSync(password, salt, 64).toString('hex');
+  return `scrypt:${salt}:${derivedKey}`;
+}
+
+function verifyPassword(password, passwordHash) {
+  const [, salt, storedKey] = passwordHash?.split(':') || [];
+  if (!salt || !storedKey) return false;
+
+  const derivedKey = scryptSync(password, salt, 64);
+  const storedBuffer = Buffer.from(storedKey, 'hex');
+  return storedBuffer.length === derivedKey.length && timingSafeEqual(storedBuffer, derivedKey);
+}
+
+function validatePasswordStrength(password, currentPassword) {
+  const failures = [];
+  if (typeof password !== 'string' || password.length < 12) failures.push('at least 12 characters');
+  if (!/[a-z]/.test(password || '')) failures.push('a lowercase letter');
+  if (!/[A-Z]/.test(password || '')) failures.push('an uppercase letter');
+  if (!/[0-9]/.test(password || '')) failures.push('a number');
+  if (!/[^A-Za-z0-9]/.test(password || '')) failures.push('a symbol');
+  if (password && currentPassword && password === currentPassword) failures.push('different from the current password');
+
+  return failures;
+}
 
 function createStore() {
   const now = () => new Date().toISOString();
@@ -28,7 +56,8 @@ function createStore() {
         id: 'user-1',
         name: 'Admin User',
         email: 'admin@example.com',
-        password: 'password',
+        passwordHash: hashPassword('password'),
+        passwordChangedAt: null,
         roles: ['Admin', 'Project Manager', 'Tester'],
         disabled: false
       },
@@ -36,7 +65,8 @@ function createStore() {
         id: 'user-2',
         name: 'Viewer User',
         email: 'viewer@example.com',
-        password: 'password',
+        passwordHash: hashPassword('password'),
+        passwordChangedAt: null,
         roles: ['Viewer'],
         disabled: false
       }
@@ -73,7 +103,7 @@ function createStore() {
 }
 
 function publicUser(user) {
-  const { password, ...safeUser } = user;
+  const { password, passwordHash, ...safeUser } = user;
   return safeUser;
 }
 
@@ -196,7 +226,7 @@ export async function buildApp(options = {}) {
     const { email, password } = request.body || {};
     const user = store.users.find((candidate) => candidate.email === email);
 
-    if (!user || user.password !== password || user.disabled) {
+    if (!user || !verifyPassword(password, user.passwordHash) || user.disabled) {
       return reply.code(401).send({ error: 'Invalid credentials' });
     }
 
@@ -209,6 +239,31 @@ export async function buildApp(options = {}) {
   app.get('/auth/session', async (request, reply) => {
     const user = requireAuth(store, request, reply);
     if (!user) return reply;
+    return { user: publicUser(user) };
+  });
+
+  app.patch('/auth/password', async (request, reply) => {
+    const user = requireAuth(store, request, reply);
+    if (!user) return reply;
+
+    const { currentPassword, newPassword, confirmPassword } = request.body || {};
+    if (!verifyPassword(currentPassword, user.passwordHash)) {
+      return reply.code(400).send({ error: 'Current password is incorrect' });
+    }
+    if (newPassword !== confirmPassword) {
+      return reply.code(400).send({ error: 'New password and confirmation must match' });
+    }
+
+    const strengthFailures = validatePasswordStrength(newPassword, currentPassword);
+    if (strengthFailures.length > 0) {
+      return reply.code(400).send({
+        error: `Password must include ${strengthFailures.join(', ')}`
+      });
+    }
+
+    user.passwordHash = hashPassword(newPassword);
+    user.passwordChangedAt = store.now();
+    store.auditEvent(user, 'auth.passwordChanged', user.id);
     return { user: publicUser(user) };
   });
 
@@ -226,7 +281,8 @@ export async function buildApp(options = {}) {
       id: `user-${store.ids.user++}`,
       name,
       email,
-      password: 'password',
+      passwordHash: hashPassword('password'),
+      passwordChangedAt: null,
       roles: validRoles,
       disabled
     };

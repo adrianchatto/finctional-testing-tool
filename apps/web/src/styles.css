@@ -75,7 +75,8 @@ textarea:focus-visible {
   margin-top: 22px;
 }
 
-.form-error {
+.form-error,
+.form-success {
   background: #fff4f3;
   border: 1px solid #efc0bd;
   border-radius: 6px;
@@ -83,6 +84,12 @@ textarea:focus-visible {
   font-weight: 700;
   margin-bottom: 0;
   padding: 10px 12px;
+}
+
+.form-success {
+  background: #f1faf5;
+  border-color: #b8dfc8;
+  color: #177245;
 }
 
 .workspace-header {

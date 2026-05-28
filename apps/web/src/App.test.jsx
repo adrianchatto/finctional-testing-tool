@@ -7,6 +7,7 @@ import { App } from './App.jsx';
 expect.extend(matchers);
 
 let projects;
+let activePassword;
 
 function jsonResponse(payload, ok = true, status = 200) {
   return {
@@ -18,13 +19,14 @@ function jsonResponse(payload, ok = true, status = 200) {
 
 beforeEach(() => {
   projects = [];
+  activePassword = 'password';
   global.fetch = vi.fn(async (url, options = {}) => {
     const rawPathname = new URL(url, 'http://localhost').pathname;
     const pathname = rawPathname.startsWith('/api/') ? rawPathname.replace('/api', '') : rawPathname;
     const body = options.body ? JSON.parse(options.body) : {};
 
     if (pathname === '/auth/login') {
-      if (body.email !== 'admin@example.com' || body.password !== 'password') {
+      if (body.email !== 'admin@example.com' || body.password !== activePassword) {
         return jsonResponse({ error: 'Invalid credentials' }, false, 401);
       }
       return jsonResponse({
@@ -35,6 +37,29 @@ beforeEach(() => {
           email: 'admin@example.com',
           roles: ['Admin', 'Project Manager', 'Tester', 'Viewer'],
           disabled: false
+        }
+      });
+    }
+
+    if (pathname === '/auth/password') {
+      if (body.currentPassword !== activePassword) {
+        return jsonResponse({ error: 'Current password is incorrect' }, false, 400);
+      }
+      if (body.newPassword !== body.confirmPassword) {
+        return jsonResponse({ error: 'New password and confirmation must match' }, false, 400);
+      }
+      if (body.newPassword.length < 12) {
+        return jsonResponse({ error: 'Password must include at least 12 characters' }, false, 400);
+      }
+      activePassword = body.newPassword;
+      return jsonResponse({
+        user: {
+          id: 'user-1',
+          name: 'Admin User',
+          email: 'admin@example.com',
+          roles: ['Admin', 'Project Manager', 'Tester', 'Viewer'],
+          disabled: false,
+          passwordChangedAt: new Date().toISOString()
         }
       });
     }
@@ -139,6 +164,34 @@ describe('Functional testing platform MVP', () => {
     expect(within(projectManagement).getAllByText(/^archived$/i).length).toBeGreaterThan(0);
     await user.click(within(projectManagement).getByRole('button', { name: /Reopen/i }));
     expect(within(projectManagement).getByText(/active/i)).toBeInTheDocument();
+  });
+
+  it('rejects weak passwords and lets a signed-in user update their password', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await signIn(user);
+    const security = screen.getByRole('region', { name: /Account security/i });
+
+    await user.type(within(security).getByLabelText(/Current password/i), 'password');
+    await user.type(within(security).getByLabelText(/^New password$/i), 'weak');
+    await user.type(within(security).getByLabelText(/Confirm new password/i), 'weak');
+    await user.click(within(security).getByRole('button', { name: /Update password/i }));
+    expect(within(security).getByText(/at least 12 characters/i)).toBeInTheDocument();
+
+    await user.clear(within(security).getByLabelText(/Current password/i));
+    await user.type(within(security).getByLabelText(/Current password/i), 'password');
+    await user.clear(within(security).getByLabelText(/^New password$/i));
+    await user.type(within(security).getByLabelText(/^New password$/i), 'Better-Password-123!');
+    await user.clear(within(security).getByLabelText(/Confirm new password/i));
+    await user.type(within(security).getByLabelText(/Confirm new password/i), 'Better-Password-123!');
+    await user.click(within(security).getByRole('button', { name: /Update password/i }));
+
+    expect(within(security).getByText(/Password updated successfully/i)).toBeInTheDocument();
+    expect(global.fetch).toHaveBeenCalledWith(
+      '/api/auth/password',
+      expect.objectContaining({ method: 'PATCH' })
+    );
   });
 
   it('connects a GitHub repository to the active project and records audit metadata', async () => {
