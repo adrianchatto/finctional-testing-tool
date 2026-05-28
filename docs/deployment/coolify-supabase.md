@@ -279,7 +279,19 @@ Environment variables:
 
 Use this when you want one Coolify resource controlling both API and web containers.
 
-Example `docker-compose.coolify.yml`:
+The repository includes `docker-compose.coolify.yml`, `apps/api/Dockerfile`, `apps/web/Dockerfile`, and `apps/web/nginx.conf`.
+
+In Coolify:
+
+1. Create a new Docker Compose resource.
+2. Select this GitHub repository.
+3. Set the compose file path to `docker-compose.coolify.yml`.
+4. Add the environment variables listed above.
+5. Set the public web domain to the `web` service.
+6. Set the public API domain to the `api` service.
+7. Deploy.
+
+The included compose file is:
 
 ```yaml
 services:
