@@ -21,6 +21,8 @@ describe('Functional testing platform MVP', () => {
       })
     ).toBeInTheDocument();
     expect(screen.getByText(/Signed out/i)).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: /User administration/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: /Project dashboard/i })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /Sign in as admin/i }));
 

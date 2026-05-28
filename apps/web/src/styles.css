@@ -41,6 +41,33 @@ textarea:focus-visible {
   padding: 28px;
 }
 
+.login-shell {
+  align-items: center;
+  background:
+    linear-gradient(140deg, rgba(34, 107, 100, 0.08), rgba(255, 255, 255, 0) 38%),
+    #f5f7f8;
+  display: flex;
+  justify-content: center;
+}
+
+.login-card {
+  background: #ffffff;
+  border: 1px solid #d9e1e3;
+  border-radius: 8px;
+  box-shadow: 0 22px 60px rgba(22, 40, 45, 0.1);
+  max-width: 760px;
+  padding: 40px;
+  width: min(100%, 760px);
+}
+
+.login-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 28px;
+}
+
 .workspace-header {
   align-items: flex-start;
   display: flex;
