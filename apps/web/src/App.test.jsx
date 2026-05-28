@@ -19,7 +19,8 @@ function jsonResponse(payload, ok = true, status = 200) {
 beforeEach(() => {
   projects = [];
   global.fetch = vi.fn(async (url, options = {}) => {
-    const pathname = new URL(url).pathname;
+    const rawPathname = new URL(url, 'http://localhost').pathname;
+    const pathname = rawPathname.startsWith('/api/') ? rawPathname.replace('/api', '') : rawPathname;
     const body = options.body ? JSON.parse(options.body) : {};
 
     if (pathname === '/auth/login') {
@@ -51,7 +52,7 @@ beforeEach(() => {
     }
 
     if (pathname === '/projects') {
-      const includeArchived = new URL(url).searchParams.get('includeArchived') === 'true';
+      const includeArchived = new URL(url, 'http://localhost').searchParams.get('includeArchived') === 'true';
       return jsonResponse({
         projects: includeArchived ? projects : projects.filter((project) => project.status === 'active')
       });
