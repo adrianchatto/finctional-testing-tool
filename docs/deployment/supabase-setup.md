@@ -39,6 +39,14 @@ After the migration runs:
 3. Run it.
 4. Confirm every `passed` value is `true`.
 
+You can also verify from the API package once `DATABASE_URL` is configured:
+
+```sh
+npm run db:verify --workspace @functional-testing-tool/api
+```
+
+The command prints JSON. `ok` should be `true`.
+
 ## Important Runtime Note
 
 RLS is enabled, but end-user RLS policies are not yet defined because the app has not been wired to Supabase Auth or Entra ID. Until that is implemented, the server-side API should access Supabase using a trusted server-side credential only.

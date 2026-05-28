@@ -8,12 +8,15 @@
     "dev": "node src/server.js",
     "start": "node src/server.js",
     "test": "vitest run",
-    "build": "node --check src/server.js && node --check src/app.js"
+    "build": "node --check src/server.js && node --check src/app.js && node --check src/db.js && node --check scripts/verify-db.js",
+    "db:verify": "node scripts/verify-db.js"
   },
   "dependencies": {
     "@fastify/cors": "^11.2.0",
     "@fastify/multipart": "^10.0.0",
-    "fastify": "^5.8.5"
+    "fastify": "^5.8.5",
+    "pg": "^8.16.3",
+    "pg": "^8.21.0"
   },
   "devDependencies": {
     "vitest": "^4.1.7"

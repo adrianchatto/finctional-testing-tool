@@ -13,7 +13,7 @@ async function request(app, token, options) {
 
 describe('functional testing API MVP', () => {
   it('covers auth, RBAC, projects, repositories, AI assets, manual results, dashboards, and audit', async () => {
-    const app = await buildApp();
+    const app = await buildApp({ databasePool: null });
 
     const login = await app.inject({
       method: 'POST',

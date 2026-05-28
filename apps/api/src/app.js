@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
+import { checkDatabase, createDatabasePool } from './db.js';
 
 const roles = ['Admin', 'Project Manager', 'Tester', 'Viewer'];
 const providers = ['openai', 'anthropic', 'gemini', 'azure-openai', 'aws-bedrock'];
@@ -176,13 +177,20 @@ function generateTests(store, projectId, story, actor, includeNegative) {
 export async function buildApp(options = {}) {
   const app = Fastify({ logger: false });
   const store = options.store || createStore();
+  const databasePool = options.databasePool === undefined ? createDatabasePool() : options.databasePool;
 
   await app.register(cors, { origin: true });
   await app.register(multipart);
 
   app.decorate('store', store);
+  app.decorate('databasePool', databasePool);
 
   app.get('/health', async () => ({ status: 'ok' }));
+
+  app.get('/health/db', async (request, reply) => {
+    const result = await checkDatabase(databasePool);
+    return reply.code(result.ok ? 200 : 503).send(result);
+  });
 
   app.post('/auth/login', async (request, reply) => {
     const { email, password } = request.body || {};
