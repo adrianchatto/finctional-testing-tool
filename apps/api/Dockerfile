@@ -13,7 +13,6 @@ ENV PORT=3001
 
 COPY --from=deps /app/package.json /app/package-lock.json ./
 COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/apps/api/node_modules ./apps/api/node_modules
 COPY apps/api ./apps/api
 
 WORKDIR /app/apps/api
