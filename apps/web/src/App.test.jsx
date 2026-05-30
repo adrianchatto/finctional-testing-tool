@@ -148,6 +148,23 @@ beforeEach(() => {
       return jsonResponse({ testCase }, true, 201);
     }
 
+    const executionMatch = pathname.match(/^\/test-cases\/([^/]+)\/executions$/);
+    if (executionMatch && options.method === 'POST') {
+      const testCase = testCases.find((candidate) => candidate.id === executionMatch[1]);
+      return jsonResponse({
+        execution: {
+          id: 'execution-1',
+          testCaseId: executionMatch[1],
+          projectId: testCase?.projectId || 'project-1',
+          status: body.status,
+          actualOutcome: body.actualOutcome,
+          notes: body.notes,
+          expectedOutcome: testCase?.expectedOutcome || '',
+          executedAt: new Date().toISOString()
+        }
+      }, true, 201);
+    }
+
     const archiveMatch = pathname.match(/^\/projects\/([^/]+)\/archive$/);
     if (archiveMatch) {
       const project = projects.find((candidate) => candidate.id === archiveMatch[1]);
@@ -264,6 +281,7 @@ describe('Functional testing platform', () => {
     await user.click(within(builder).getByRole('button', { name: /Save test script to project/i }));
     expect(within(builder).getByText(/Test script saved to this project/i)).toBeInTheDocument();
     expect(within(builder).getByRole('region', { name: /Saved test scripts/i })).toHaveTextContent('Password reset happy path');
+    expect(within(builder).getByRole('button', { name: /Open for execution/i })).toBeInTheDocument();
   });
 
   it('keeps account security out of the project workspace and updates password only in Account', async () => {
@@ -295,7 +313,16 @@ describe('Functional testing platform', () => {
     render(<App />);
 
     await signIn(user);
-    await user.click(screen.getByRole('button', { name: /UAT Execution/i }));
+    await createProject(user);
+    await user.click(screen.getByRole('button', { name: /Requirements & AI/i }));
+    await user.type(screen.getByLabelText(/Test script title/i), 'Password reset happy path');
+    await user.type(screen.getByLabelText(/Preconditions/i), 'Customer account exists');
+    await user.type(screen.getByLabelText(/Test steps/i), 'Open forgot password');
+    await user.type(screen.getByLabelText(/Expected outcome/i), 'A reset email is sent.');
+    await user.click(screen.getByRole('button', { name: /Save test script to project/i }));
+    await user.click(screen.getByRole('button', { name: /Open for execution/i }));
+
+    expect(screen.getByRole('region', { name: /Selected test script/i })).toHaveTextContent('Password reset happy path');
     await user.selectOptions(screen.getByLabelText(/Execution result/i), 'Fail');
     await user.type(screen.getByLabelText(/Actual outcome/i), 'Wallet token expired but checkout still completed.');
     await user.type(screen.getByLabelText(/Evidence notes/i), 'Screenshot captured in UAT.');
@@ -304,5 +331,6 @@ describe('Functional testing platform', () => {
     const execution = screen.getByRole('region', { name: /Manual execution and evidence/i });
     expect(within(execution).getAllByText(/^Fail$/i).length).toBeGreaterThan(0);
     expect(within(execution).getAllByText(/Wallet token expired/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/50% pass rate|0% pass rate/i)).toBeInTheDocument();
   });
 });

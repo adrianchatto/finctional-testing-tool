@@ -72,11 +72,14 @@ export function App() {
   const [testScriptExpectedOutcome, setTestScriptExpectedOutcome] = useState('');
   const [testScriptStatus, setTestScriptStatus] = useState(null);
   const [testScripts, setTestScripts] = useState([]);
+  const [selectedTestScript, setSelectedTestScript] = useState(null);
 
   const [executionResult, setExecutionResult] = useState('Not Run');
   const [actualOutcome, setActualOutcome] = useState('');
   const [evidenceNotes, setEvidenceNotes] = useState('');
   const [savedExecution, setSavedExecution] = useState(null);
+  const [executionStatus, setExecutionStatus] = useState(null);
+  const [executionRecords, setExecutionRecords] = useState([]);
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -96,10 +99,10 @@ export function App() {
   const selectedProvider = providerOptions.find((provider) => provider.value === aiProvider);
 
   const latestRequirement = requirementResult?.aiSuggestions || {};
-  const failCount = savedExecution?.result === 'Fail' ? 1 : 0;
-  const blockedCount = savedExecution?.result === 'Blocked' ? 1 : 0;
-  const passedCount = savedExecution?.result === 'Pass' ? 1 : 0;
-  const total = passedCount + failCount + blockedCount;
+  const failCount = executionRecords.filter((execution) => execution.result === 'Fail').length;
+  const blockedCount = executionRecords.filter((execution) => execution.result === 'Blocked').length;
+  const passedCount = executionRecords.filter((execution) => execution.result === 'Pass').length;
+  const total = testScripts.length;
   const passRate = total ? Math.round((passedCount / total) * 100) : 0;
 
   const navItems = useMemo(
@@ -292,6 +295,7 @@ export function App() {
         }
       });
       setTestScripts((current) => [payload.testCase, ...current]);
+      setSelectedTestScript(payload.testCase);
       setTestScriptStatus({ type: 'success', message: 'Test script saved to this project.' });
       addAudit(`Test script saved by ${displayName}: ${payload.testCase.title}`);
     } catch (error) {
@@ -299,10 +303,48 @@ export function App() {
     }
   }
 
-  function saveExecution() {
-    const execution = { result: executionResult, actualOutcome, evidenceNotes };
-    setSavedExecution(execution);
-    addAudit(`Execution marked ${executionResult} by ${displayName}`);
+  function openTestScriptForExecution(testScript) {
+    setSelectedTestScript(testScript);
+    setExecutionStatus(null);
+    setSavedExecution(null);
+    setActualOutcome('');
+    setEvidenceNotes('');
+    setActiveView('uat');
+  }
+
+  async function saveExecution() {
+    setExecutionStatus(null);
+    if (!selectedTestScript) {
+      setExecutionStatus({ type: 'error', message: 'Open a saved test script before recording an execution result.' });
+      return;
+    }
+
+    try {
+      const payload = await apiRequest(`/test-cases/${selectedTestScript.id}/executions`, {
+        method: 'POST',
+        token,
+        body: {
+          status: executionResult.toLowerCase().replace(' ', '-'),
+          actualOutcome,
+          notes: evidenceNotes
+        }
+      });
+      const execution = {
+        ...payload.execution,
+        result: executionResult,
+        actualOutcome,
+        evidenceNotes,
+        testTitle: selectedTestScript.title
+      };
+      setSavedExecution(execution);
+      setExecutionRecords((current) => [
+        execution,
+        ...current.filter((candidate) => candidate.testCaseId !== selectedTestScript.id)
+      ]);
+      addAudit(`Execution marked ${executionResult} by ${displayName}: ${selectedTestScript.title}`);
+    } catch (error) {
+      setExecutionStatus({ type: 'error', message: error.message });
+    }
   }
 
   async function changePassword(event) {
@@ -674,10 +716,16 @@ export function App() {
             {testScripts.length > 0 && (
               <div className="saved-scripts" role="region" aria-label="Saved test scripts">
                 <h3>Saved test scripts</h3>
-                <ul className="asset-list">
+                <ul className="script-list">
                   {testScripts.map((testScript) => (
                     <li key={testScript.id}>
-                      <strong>{testScript.title}</strong>: {testScript.expectedOutcome}
+                      <div>
+                        <strong>{testScript.title}</strong>
+                        <p>{testScript.expectedOutcome}</p>
+                      </div>
+                      <button className="secondary-button" type="button" onClick={() => openTestScriptForExecution(testScript)}>
+                        Open for execution
+                      </button>
                     </li>
                   ))}
                 </ul>
@@ -720,6 +768,35 @@ export function App() {
               <ClipboardCheck size={18} aria-hidden="true" />
               <h2>Manual execution</h2>
             </div>
+            {selectedTestScript ? (
+              <div className="selected-script" role="region" aria-label="Selected test script">
+                <p className="label">Selected script</p>
+                <h3>{selectedTestScript.title}</h3>
+                <p>{selectedTestScript.expectedOutcome}</p>
+                {selectedTestScript.preconditions?.length > 0 && (
+                  <>
+                    <p className="label">Preconditions</p>
+                    <ul className="asset-list">
+                      {selectedTestScript.preconditions.map((precondition) => (
+                        <li key={precondition}>{precondition}</li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+                {selectedTestScript.steps?.length > 0 && (
+                  <>
+                    <p className="label">Steps</p>
+                    <ol className="asset-list">
+                      {selectedTestScript.steps.map((step) => (
+                        <li key={step}>{step}</li>
+                      ))}
+                    </ol>
+                  </>
+                )}
+              </div>
+            ) : (
+              <p className="form-error">Open a saved test script from Requirements & AI before recording a result.</p>
+            )}
             <div className="stack-form">
               <label htmlFor="execution-result">Execution result</label>
               <select
@@ -746,6 +823,11 @@ export function App() {
                 value={evidenceNotes}
                 onChange={(event) => setEvidenceNotes(event.target.value)}
               />
+              {executionStatus && (
+                <p className={executionStatus.type === 'success' ? 'form-success' : 'form-error'}>
+                  {executionStatus.message}
+                </p>
+              )}
               <button className="primary-button" type="button" onClick={saveExecution}>
                 Save execution result
               </button>

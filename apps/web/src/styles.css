@@ -548,9 +548,34 @@ textarea {
   margin-bottom: 10px;
 }
 
+.script-list {
+  display: grid;
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.script-list li {
+  align-items: center;
+  border: 1px solid #dce7e9;
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 12px;
+}
+
+.script-list p {
+  color: #4d6368;
+  line-height: 1.45;
+  margin: 6px 0 0;
+}
+
 .execution-record,
 .settings-summary,
-.saved-scripts {
+.saved-scripts,
+.selected-script {
   background: #f8fafb;
   border: 1px solid #dde7e9;
   border-radius: 8px;
@@ -567,6 +592,14 @@ textarea {
 .execution-record p:last-child,
 .settings-summary p:last-child {
   margin-bottom: 0;
+}
+
+.selected-script {
+  margin: 0 0 16px;
+}
+
+.selected-script h3 {
+  font-size: 1.05rem;
 }
 
 .report-line {
@@ -665,6 +698,7 @@ textarea {
   .metric-row,
   .execution-form,
   .project-row,
+  .script-list li,
   .report-line,
   .audit-list li {
     grid-template-columns: 1fr;
