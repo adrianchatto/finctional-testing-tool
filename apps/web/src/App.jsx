@@ -140,6 +140,13 @@ export function App() {
     setActiveView('projects');
   }
 
+  function openProject(projectId) {
+    setSelectedProjectId(projectId);
+    setRequirementStatus(null);
+    setRequirementResult(null);
+    setActiveView('requirements');
+  }
+
   async function createProject(event) {
     event.preventDefault();
     setProjectError('');
@@ -376,7 +383,7 @@ export function App() {
                     <button
                       className="project-select"
                       type="button"
-                      onClick={() => setSelectedProjectId(project.id)}
+                      onClick={() => openProject(project.id)}
                       aria-pressed={selectedProjectId === project.id}
                     >
                       <strong>{project.name}</strong>
@@ -476,6 +483,11 @@ export function App() {
               <Bot size={18} aria-hidden="true" />
               <h2>Requirement analysis</h2>
             </div>
+            <p className="section-copy">
+              {selectedProject
+                ? `Creating use cases and test assets for ${selectedProject.name}.`
+                : 'Select a project before generating use cases and test assets.'}
+            </p>
             <form className="stack-form" onSubmit={generateTestingAssets}>
               <label htmlFor="requirement-title">Requirement title</label>
               <input
@@ -505,7 +517,7 @@ export function App() {
               <div className="ai-output">
                 <h3>AI summary</h3>
                 <p>{requirementResult.aiResponse}</p>
-                <h3>User stories</h3>
+                <h3>Use cases / user stories</h3>
                 <ul className="asset-list">
                   {(latestRequirement.userStories || []).map((story) => (
                     <li key={story.title}>

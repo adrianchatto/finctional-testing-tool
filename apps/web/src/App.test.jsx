@@ -182,13 +182,19 @@ describe('Functional testing platform', () => {
     expect(within(projectManagement).getByText(/Claims Portal UAT/i)).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /Claims Portal UAT/i })).toBeInTheDocument();
 
-    await user.click(within(projectManagement).getByRole('button', { name: /Archive/i }));
-    expect(within(projectManagement).queryByText(/Claims Portal UAT/i)).not.toBeInTheDocument();
+    await user.click(within(projectManagement).getByRole('button', { name: /Claims Portal UAT/i }));
+    expect(screen.getByRole('region', { name: /Generated testing assets/i })).toBeInTheDocument();
+    expect(screen.getByText(/Creating use cases and test assets for Claims Portal UAT/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /Projects/i }));
+    const reopenedProjectManagement = screen.getByRole('region', { name: /Project management/i });
+    await user.click(within(reopenedProjectManagement).getByRole('button', { name: /Archive/i }));
+    expect(within(reopenedProjectManagement).queryByText(/Claims Portal UAT/i)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('checkbox', { name: /Show archived projects/i }));
-    expect(within(projectManagement).getAllByText(/^archived$/i).length).toBeGreaterThan(0);
-    await user.click(within(projectManagement).getByRole('button', { name: /Reopen/i }));
-    expect(within(projectManagement).getByText(/^active$/i)).toBeInTheDocument();
+    expect(within(reopenedProjectManagement).getAllByText(/^archived$/i).length).toBeGreaterThan(0);
+    await user.click(within(reopenedProjectManagement).getByRole('button', { name: /Reopen/i }));
+    expect(within(reopenedProjectManagement).getByText(/^active$/i)).toBeInTheDocument();
   });
 
   it('connects a GitHub repository to the selected project', async () => {
@@ -223,6 +229,7 @@ describe('Functional testing platform', () => {
     await user.click(screen.getByRole('button', { name: /Generate test assets/i }));
 
     expect(screen.getByText(/Structured requirement analysis completed/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Use cases \/ user stories/i })).toBeInTheDocument();
     expect(screen.getByText(/Reset request sends a verification email/i)).toBeInTheDocument();
     expect(screen.getByText(/Expired reset token is rejected/i)).toBeInTheDocument();
   });
