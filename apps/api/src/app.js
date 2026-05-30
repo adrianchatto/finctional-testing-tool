@@ -156,7 +156,13 @@ async function generateRequirementAssets({ prompt, title, providerConfig, projec
       })
     });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.error?.message || 'Anthropic request failed');
+    if (!response.ok) {
+      const message = payload.error?.message || 'Anthropic request failed';
+      if (message.toLowerCase().includes('model')) {
+        throw new Error(`${message}. Try claude-sonnet-4-20250514.`);
+      }
+      throw new Error(message);
+    }
     const content = payload.content?.map((item) => item.text).filter(Boolean).join('\n') || '{}';
     return parseAiJson(content, prompt, title, provider, model);
   }
@@ -627,6 +633,53 @@ export async function buildApp(options = {}) {
     store.auditEvent(actor, 'testCases.generated', story.id, { count: testCases.length });
     store.auditEvent(actor, 'ai.usageLogged', story.id, { action: 'test-generation' });
     return reply.code(201).send({ testCases });
+  });
+
+  app.post('/projects/:id/test-cases', async (request, reply) => {
+    const actor = requireAuth(store, request, reply);
+    if (!actor || !requireRole(actor, ['Admin', 'Project Manager', 'Tester'], reply)) return reply;
+    const project = store.projects.find((candidate) => candidate.id === request.params.id);
+    if (!project) return reply.code(404).send({ error: 'Project not found' });
+
+    const {
+      title,
+      type = 'functional',
+      preconditions = [],
+      steps = [],
+      expectedOutcome = '',
+      critical = true
+    } = request.body || {};
+    if (!title || !expectedOutcome || !Array.isArray(steps) || steps.length === 0) {
+      return reply.code(400).send({ error: 'Title, at least one step, and expected outcome are required' });
+    }
+
+    const testCase = {
+      id: `test-${store.ids.testCase++}`,
+      projectId: project.id,
+      storyId: request.body?.storyId || null,
+      title,
+      type,
+      preconditions,
+      steps,
+      expectedOutcome,
+      editable: true,
+      createdBy: actor.id,
+      createdAt: store.now(),
+      critical: Boolean(critical)
+    };
+    store.testCases.push(testCase);
+    store.auditEvent(actor, 'testCase.created', testCase.id, { projectId: project.id });
+    return reply.code(201).send({ testCase });
+  });
+
+  app.get('/projects/:id/test-cases', async (request, reply) => {
+    const actor = requireAuth(store, request, reply);
+    if (!actor) return reply;
+    const project = store.projects.find((candidate) => candidate.id === request.params.id);
+    if (!project) return reply.code(404).send({ error: 'Project not found' });
+    return {
+      testCases: store.testCases.filter((testCase) => testCase.projectId === project.id)
+    };
   });
 
   app.post('/test-cases/:id/executions', async (request, reply) => {

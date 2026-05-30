@@ -173,6 +173,27 @@ describe('functional testing API MVP', () => {
     const requirement = requirementCreated.json().requirement;
     expect(requirement.aiSuggestions.missingScenarios).toContain('Negative and exception paths');
 
+    const savedScript = await request(app, adminToken, {
+      method: 'POST',
+      url: `/projects/${project.id}/test-cases`,
+      payload: {
+        title: 'Password reset happy path',
+        type: 'functional',
+        preconditions: ['Customer account exists'],
+        steps: ['Open forgot password', 'Submit registered email', 'Open reset link'],
+        expectedOutcome: 'The customer can create a new password and sign in.'
+      }
+    });
+    expect(savedScript.statusCode).toBe(201);
+    expect(savedScript.json().testCase.steps).toContain('Submit registered email');
+
+    const projectScripts = await request(app, adminToken, {
+      method: 'GET',
+      url: `/projects/${project.id}/test-cases`
+    });
+    expect(projectScripts.statusCode).toBe(200);
+    expect(projectScripts.json().testCases.map((testCase) => testCase.title)).toContain('Password reset happy path');
+
     const storyCreated = await request(app, adminToken, {
       method: 'POST',
       url: `/requirements/${requirement.id}/stories`,
@@ -304,6 +325,7 @@ describe('functional testing API MVP', () => {
         'project.reopened',
         'repository.connected',
         'requirement.created',
+        'testCase.created',
         'testExecution.created',
         'evidence.uploaded'
       ])

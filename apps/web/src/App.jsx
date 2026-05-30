@@ -15,7 +15,7 @@ import { apiRequest } from './api.js';
 
 const providerOptions = [
   { value: 'openai', label: 'OpenAI / ChatGPT', defaultModel: 'gpt-4o-mini' },
-  { value: 'anthropic', label: 'Anthropic Claude', defaultModel: 'claude-3-5-sonnet-latest' },
+  { value: 'anthropic', label: 'Anthropic Claude', defaultModel: 'claude-sonnet-4-20250514' },
   { value: 'gemini', label: 'Google Gemini', defaultModel: 'gemini-1.5-pro' },
   { value: 'azure-openai', label: 'Azure OpenAI', defaultModel: 'gpt-4o' },
   { value: 'aws-bedrock', label: 'AWS Bedrock', defaultModel: 'anthropic.claude-3-5-sonnet' }
@@ -27,6 +27,13 @@ function createAudit(message) {
     message,
     timestamp: new Date().toLocaleString()
   };
+}
+
+function linesToArray(value) {
+  return value
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
 }
 
 export function App() {
@@ -57,6 +64,14 @@ export function App() {
   const [requirementPrompt, setRequirementPrompt] = useState('');
   const [requirementResult, setRequirementResult] = useState(null);
   const [requirementStatus, setRequirementStatus] = useState(null);
+
+  const [testScriptTitle, setTestScriptTitle] = useState('');
+  const [testScriptType, setTestScriptType] = useState('functional');
+  const [testScriptPreconditions, setTestScriptPreconditions] = useState('');
+  const [testScriptSteps, setTestScriptSteps] = useState('');
+  const [testScriptExpectedOutcome, setTestScriptExpectedOutcome] = useState('');
+  const [testScriptStatus, setTestScriptStatus] = useState(null);
+  const [testScripts, setTestScripts] = useState([]);
 
   const [executionResult, setExecutionResult] = useState('Not Run');
   const [actualOutcome, setActualOutcome] = useState('');
@@ -144,7 +159,18 @@ export function App() {
     setSelectedProjectId(projectId);
     setRequirementStatus(null);
     setRequirementResult(null);
+    setTestScriptStatus(null);
     setActiveView('requirements');
+  }
+
+  function hydrateTestScript(test) {
+    if (!test) return;
+    setTestScriptTitle(test.title || '');
+    setTestScriptType(test.type || 'functional');
+    setTestScriptPreconditions((test.preconditions || []).join('\n'));
+    setTestScriptSteps((test.steps || []).join('\n'));
+    setTestScriptExpectedOutcome(test.expectedOutcome || '');
+    setTestScriptStatus({ type: 'success', message: 'Generated test script loaded into the builder. Review, edit, then save it.' });
   }
 
   async function createProject(event) {
@@ -237,9 +263,39 @@ export function App() {
       });
       setRequirementResult(payload.requirement);
       setRequirementStatus({ type: 'success', message: 'Requirement assets generated.' });
+      hydrateTestScript(payload.requirement.aiSuggestions?.functionalTests?.[0]);
       addAudit(`AI generated requirement assets by ${displayName}`);
     } catch (error) {
       setRequirementStatus({ type: 'error', message: error.message });
+    }
+  }
+
+  async function saveTestScript(event) {
+    event.preventDefault();
+    setTestScriptStatus(null);
+    if (!selectedProject) {
+      setTestScriptStatus({ type: 'error', message: 'Select a project before saving a test script.' });
+      return;
+    }
+
+    try {
+      const payload = await apiRequest(`/projects/${selectedProject.id}/test-cases`, {
+        method: 'POST',
+        token,
+        body: {
+          title: testScriptTitle,
+          type: testScriptType,
+          preconditions: linesToArray(testScriptPreconditions),
+          steps: linesToArray(testScriptSteps),
+          expectedOutcome: testScriptExpectedOutcome,
+          critical: true
+        }
+      });
+      setTestScripts((current) => [payload.testCase, ...current]);
+      setTestScriptStatus({ type: 'success', message: 'Test script saved to this project.' });
+      addAudit(`Test script saved by ${displayName}: ${payload.testCase.title}`);
+    } catch (error) {
+      setTestScriptStatus({ type: 'error', message: error.message });
     }
   }
 
@@ -543,6 +599,86 @@ export function App() {
                 <ul className="asset-list">
                   {(latestRequirement.negativeScenarios || latestRequirement.missingScenarios || []).map((scenario) => (
                     <li key={scenario}>{scenario}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </section>
+
+          <section className="panel span-3" aria-label="Test script builder">
+            <div className="section-title">
+              <ClipboardCheck size={18} aria-hidden="true" />
+              <h2>Test script builder</h2>
+            </div>
+            <p className="section-copy">
+              Build the manual UAT script here. AI-generated tests load into this form, but every field stays editable before you save it to the project.
+            </p>
+            <form className="test-script-form" onSubmit={saveTestScript}>
+              <label htmlFor="test-script-title">Test script title</label>
+              <input
+                id="test-script-title"
+                value={testScriptTitle}
+                onChange={(event) => setTestScriptTitle(event.target.value)}
+                placeholder="e.g. Password reset happy path"
+              />
+
+              <label htmlFor="test-script-type">Test type</label>
+              <select
+                id="test-script-type"
+                value={testScriptType}
+                onChange={(event) => setTestScriptType(event.target.value)}
+              >
+                <option value="functional">Functional</option>
+                <option value="negative">Negative</option>
+                <option value="permission">Permission</option>
+                <option value="regression">Regression</option>
+              </select>
+
+              <label htmlFor="test-script-preconditions">Preconditions</label>
+              <textarea
+                id="test-script-preconditions"
+                rows="4"
+                value={testScriptPreconditions}
+                onChange={(event) => setTestScriptPreconditions(event.target.value)}
+                placeholder="One precondition per line."
+              />
+
+              <label htmlFor="test-script-steps">Test steps</label>
+              <textarea
+                id="test-script-steps"
+                rows="6"
+                value={testScriptSteps}
+                onChange={(event) => setTestScriptSteps(event.target.value)}
+                placeholder="One test step per line."
+              />
+
+              <label htmlFor="test-script-expected">Expected outcome</label>
+              <textarea
+                id="test-script-expected"
+                rows="4"
+                value={testScriptExpectedOutcome}
+                onChange={(event) => setTestScriptExpectedOutcome(event.target.value)}
+                placeholder="Describe the pass condition for this script."
+              />
+
+              {testScriptStatus && (
+                <p className={testScriptStatus.type === 'success' ? 'form-success' : 'form-error'}>
+                  {testScriptStatus.message}
+                </p>
+              )}
+              <button className="primary-button" type="submit">
+                Save test script to project
+              </button>
+            </form>
+
+            {testScripts.length > 0 && (
+              <div className="saved-scripts" role="region" aria-label="Saved test scripts">
+                <h3>Saved test scripts</h3>
+                <ul className="asset-list">
+                  {testScripts.map((testScript) => (
+                    <li key={testScript.id}>
+                      <strong>{testScript.title}</strong>: {testScript.expectedOutcome}
+                    </li>
                   ))}
                 </ul>
               </div>

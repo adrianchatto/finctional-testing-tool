@@ -8,6 +8,7 @@ expect.extend(matchers);
 
 let projects;
 let activePassword;
+let testCases;
 
 function jsonResponse(payload, ok = true, status = 200) {
   return {
@@ -19,6 +20,7 @@ function jsonResponse(payload, ok = true, status = 200) {
 
 beforeEach(() => {
   projects = [];
+  testCases = [];
   activePassword = 'password';
   global.fetch = vi.fn(async (url, options = {}) => {
     const requestUrl = new URL(url, 'http://localhost');
@@ -116,11 +118,34 @@ beforeEach(() => {
           aiSuggestions: {
             userStories: [{ title: 'Password reset', narrative: 'As a user, I can reset my password.' }],
             acceptanceCriteria: ['Reset request sends a verification email.'],
-            functionalTests: [{ title: 'Password reset happy path', expectedOutcome: 'A reset email is sent.' }],
+            functionalTests: [
+              {
+                title: 'Password reset happy path',
+                type: 'functional',
+                preconditions: ['Customer account exists'],
+                steps: ['Open forgot password', 'Submit registered email'],
+                expectedOutcome: 'A reset email is sent.'
+              }
+            ],
             negativeScenarios: ['Expired reset token is rejected.']
           }
         }
       }, true, 201);
+    }
+
+    const projectTestCaseMatch = pathname.match(/^\/projects\/([^/]+)\/test-cases$/);
+    if (projectTestCaseMatch && options.method === 'POST') {
+      const testCase = {
+        id: `test-${testCases.length + 1}`,
+        projectId: projectTestCaseMatch[1],
+        title: body.title,
+        type: body.type,
+        preconditions: body.preconditions,
+        steps: body.steps,
+        expectedOutcome: body.expectedOutcome
+      };
+      testCases = [testCase, ...testCases];
+      return jsonResponse({ testCase }, true, 201);
     }
 
     const archiveMatch = pathname.match(/^\/projects\/([^/]+)\/archive$/);
@@ -219,10 +244,10 @@ describe('Functional testing platform', () => {
 
     await user.selectOptions(screen.getByLabelText(/^Provider$/i), 'anthropic');
     await user.clear(screen.getByLabelText(/^Model$/i));
-    await user.type(screen.getByLabelText(/^Model$/i), 'claude-3-5-sonnet-latest');
+    await user.type(screen.getByLabelText(/^Model$/i), 'claude-sonnet-4-20250514');
     await user.type(screen.getByLabelText(/API key/i), 'sk-test-secret');
     await user.click(screen.getByRole('button', { name: /Save AI settings/i }));
-    expect(screen.getByText(/configured with claude-3-5-sonnet-latest/i)).toBeInTheDocument();
+    expect(screen.getByText(/configured with claude-sonnet-4-20250514/i)).toBeInTheDocument();
 
     await user.type(screen.getByLabelText(/Requirement title/i), 'Password reset');
     await user.type(screen.getByLabelText(/Requirement prompt/i), 'As a user, I can reset my password.');
@@ -232,6 +257,13 @@ describe('Functional testing platform', () => {
     expect(screen.getByRole('heading', { name: /Use cases \/ user stories/i })).toBeInTheDocument();
     expect(screen.getByText(/Reset request sends a verification email/i)).toBeInTheDocument();
     expect(screen.getByText(/Expired reset token is rejected/i)).toBeInTheDocument();
+
+    const builder = screen.getByRole('region', { name: /Test script builder/i });
+    expect(within(builder).getByLabelText(/Test script title/i)).toHaveValue('Password reset happy path');
+    expect(within(builder).getByLabelText(/Test steps/i).value).toContain('Submit registered email');
+    await user.click(within(builder).getByRole('button', { name: /Save test script to project/i }));
+    expect(within(builder).getByText(/Test script saved to this project/i)).toBeInTheDocument();
+    expect(within(builder).getByRole('region', { name: /Saved test scripts/i })).toHaveTextContent('Password reset happy path');
   });
 
   it('keeps account security out of the project workspace and updates password only in Account', async () => {
