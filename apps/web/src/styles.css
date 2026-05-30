@@ -167,6 +167,30 @@ h3 {
   max-width: 1440px;
 }
 
+.workspace-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 auto 18px;
+  max-width: 1440px;
+}
+
+.nav-button {
+  background: #ffffff;
+  border: 1px solid #cbd7da;
+  border-radius: 6px;
+  color: #263a3f;
+  font-weight: 800;
+  min-height: 40px;
+  padding: 9px 12px;
+}
+
+.nav-button.active {
+  background: #226b64;
+  border-color: #226b64;
+  color: #ffffff;
+}
+
 .panel {
   padding: 18px;
 }
@@ -458,6 +482,16 @@ textarea {
   color: #30494e;
   line-height: 1.5;
   padding: 12px;
+}
+
+.ai-output {
+  background: #f8fafb;
+  border: 1px solid #dde7e9;
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 14px;
 }
 
 .asset-columns {

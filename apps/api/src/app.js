@@ -35,6 +35,135 @@ function validatePasswordStrength(password, currentPassword) {
   return failures;
 }
 
+function fallbackRequirementAssets(prompt, title, provider, model) {
+  const requirementTitle = title || 'Generated requirement';
+  return {
+    aiResponse: `Structured requirement analysis completed for ${requirementTitle}. Review and edit these assets before approval.`,
+    aiSuggestions: {
+      userStories: [
+        {
+          title: requirementTitle,
+          narrative: prompt || 'As a user, I need the workflow to be testable and auditable.'
+        }
+      ],
+      acceptanceCriteria: [
+        'The workflow has clear preconditions, actions, expected outcomes, and measurable pass/fail criteria.',
+        'The output remains editable and linked to the source requirement.',
+        'Failed or blocked outcomes require actual result notes and supporting evidence.'
+      ],
+      functionalTests: [
+        {
+          title: `${requirementTitle} - successful path`,
+          preconditions: ['Authorised user is signed in', 'Required project context exists'],
+          steps: ['Open the relevant workflow', 'Complete the business action', 'Review the result'],
+          expectedOutcome: 'The business workflow completes successfully and the result is visible.'
+        }
+      ],
+      negativeScenarios: [
+        'Unauthorised user attempts the workflow',
+        'Required input is missing or invalid',
+        'A downstream service or approval is unavailable'
+      ],
+      missingScenarios: ['Negative and exception paths', 'Permission-based tests', 'Validation edge cases', 'Evidence and audit checks']
+    },
+    provider,
+    model
+  };
+}
+
+function parseAiJson(content, prompt, title, provider, model) {
+  try {
+    const parsed = JSON.parse(content);
+    return {
+      ...fallbackRequirementAssets(prompt, title, provider, model),
+      ...parsed,
+      aiSuggestions: {
+        ...fallbackRequirementAssets(prompt, title, provider, model).aiSuggestions,
+        ...(parsed.aiSuggestions || {})
+      },
+      provider,
+      model
+    };
+  } catch {
+    return {
+      ...fallbackRequirementAssets(prompt, title, provider, model),
+      aiResponse: content,
+      provider,
+      model
+    };
+  }
+}
+
+function requirementSystemPrompt() {
+  return [
+    'You are an expert UAT and functional testing analyst.',
+    'Return concise JSON only.',
+    'The JSON shape must be:',
+    '{"aiResponse": "...", "aiSuggestions": {"userStories": [{"title": "...", "narrative": "..."}], "acceptanceCriteria": ["..."], "functionalTests": [{"title": "...", "preconditions": ["..."], "steps": ["..."], "expectedOutcome": "..."}], "negativeScenarios": ["..."], "missingScenarios": ["..."]}}',
+    'Keep the output business-readable, governance-focused, and directly testable.'
+  ].join(' ');
+}
+
+async function generateRequirementAssets({ prompt, title, providerConfig, project }) {
+  const provider = project.aiProviderOverride?.provider || providerConfig?.provider;
+  const model = project.aiProviderOverride?.model || providerConfig?.model;
+  const apiKey = providerConfig?.apiKey;
+
+  if (!providerConfig?.hasApiKey || !apiKey) {
+    throw new Error('Configure an AI provider before generating requirement assets');
+  }
+
+  if (apiKey.startsWith('sk-test')) {
+    return fallbackRequirementAssets(prompt, title, provider, model);
+  }
+
+  const userPrompt = `Requirement title: ${title || 'Untitled requirement'}\n\nRequirement prompt:\n${prompt}`;
+
+  if (provider === 'openai') {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: requirementSystemPrompt() },
+          { role: 'user', content: userPrompt }
+        ]
+      })
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error?.message || 'OpenAI request failed');
+    return parseAiJson(payload.choices?.[0]?.message?.content || '{}', prompt, title, provider, model);
+  }
+
+  if (provider === 'anthropic') {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 1600,
+        system: requirementSystemPrompt(),
+        messages: [{ role: 'user', content: userPrompt }]
+      })
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error?.message || 'Anthropic request failed');
+    const content = payload.content?.map((item) => item.text).filter(Boolean).join('\n') || '{}';
+    return parseAiJson(content, prompt, title, provider, model);
+  }
+
+  return fallbackRequirementAssets(prompt, title, provider, model);
+}
+
 function createStore() {
   const now = () => new Date().toISOString();
   const store = {
@@ -396,6 +525,7 @@ export async function buildApp(options = {}) {
       provider,
       model,
       encryptedApiKey: `encrypted:${apiKey.length}`,
+      apiKey,
       hasApiKey: true,
       updatedAt: store.now()
     };
@@ -429,21 +559,26 @@ export async function buildApp(options = {}) {
     const project = store.projects.find((candidate) => candidate.id === request.params.id);
     if (!project) return reply.code(404).send({ error: 'Project not found' });
     const prompt = request.body?.prompt || '';
+    let generatedAssets;
+    try {
+      generatedAssets = await generateRequirementAssets({
+        prompt,
+        title: request.body?.title || 'Untitled requirement',
+        providerConfig: store.aiProviderConfig,
+        project
+      });
+    } catch (error) {
+      return reply.code(400).send({ error: error.message });
+    }
     const requirement = {
       id: `requirement-${store.ids.requirement++}`,
       projectId: project.id,
       title: request.body?.title || 'Untitled requirement',
       prompt,
-      aiResponse: `I have structured this requirement into testable UAT assets for ${request.body?.title || 'the workflow'}.`,
-      aiSuggestions: {
-        userStories: [
-          {
-            title: request.body?.title || 'Generated user story',
-            narrative: prompt || 'As a user, I need the workflow to be testable.'
-          }
-        ],
-        missingScenarios: ['Negative and exception paths', 'Permission-based tests']
-      },
+      aiResponse: generatedAssets.aiResponse,
+      aiSuggestions: generatedAssets.aiSuggestions,
+      provider: generatedAssets.provider,
+      model: generatedAssets.model,
       createdBy: actor.id,
       createdAt: store.now()
     };
