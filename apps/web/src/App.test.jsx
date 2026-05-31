@@ -231,7 +231,8 @@ describe('Functional testing platform', () => {
     await user.click(screen.getByRole('button', { name: /Projects/i }));
     const reopenedProjectManagement = screen.getByRole('region', { name: /Project management/i });
     await user.click(within(reopenedProjectManagement).getByRole('button', { name: /Archive/i }));
-    expect(within(reopenedProjectManagement).queryByText(/Claims Portal UAT/i)).not.toBeInTheDocument();
+    expect(within(reopenedProjectManagement).getByText(/Claims Portal UAT archived/i)).toBeInTheDocument();
+    expect(within(reopenedProjectManagement).queryByRole('button', { name: /Claims Portal UAT/i })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('checkbox', { name: /Show archived projects/i }));
     expect(within(reopenedProjectManagement).getAllByText(/^archived$/i).length).toBeGreaterThan(0);

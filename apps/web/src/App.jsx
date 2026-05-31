@@ -51,6 +51,7 @@ export function App() {
   const [projectDescription, setProjectDescription] = useState('');
   const [showArchived, setShowArchived] = useState(false);
   const [projectError, setProjectError] = useState('');
+  const [projectActionStatus, setProjectActionStatus] = useState(null);
 
   const [repositoryUrl, setRepositoryUrl] = useState('');
   const [repositoryStatus, setRepositoryStatus] = useState(null);
@@ -179,6 +180,7 @@ export function App() {
   async function createProject(event) {
     event.preventDefault();
     setProjectError('');
+    setProjectActionStatus(null);
     try {
       const payload = await apiRequest('/projects', {
         method: 'POST',
@@ -196,16 +198,28 @@ export function App() {
   }
 
   async function archiveProject(projectId) {
-    const payload = await apiRequest(`/projects/${projectId}/archive`, { method: 'POST', token });
-    setProjects((current) => current.map((project) => (project.id === payload.project.id ? payload.project : project)));
-    addAudit(`Project archived by ${displayName}: ${payload.project.name}`);
+    setProjectActionStatus(null);
+    try {
+      const payload = await apiRequest(`/projects/${projectId}/archive`, { method: 'POST', token });
+      await loadProjects(token, showArchived);
+      setProjectActionStatus({ type: 'success', message: `${payload.project.name} archived.` });
+      addAudit(`Project archived by ${displayName}: ${payload.project.name}`);
+    } catch (error) {
+      setProjectActionStatus({ type: 'error', message: error.message });
+    }
   }
 
   async function reopenProject(projectId) {
-    const payload = await apiRequest(`/projects/${projectId}/reopen`, { method: 'POST', token });
-    setProjects((current) => current.map((project) => (project.id === payload.project.id ? payload.project : project)));
-    setSelectedProjectId(payload.project.id);
-    addAudit(`Project reopened by ${displayName}: ${payload.project.name}`);
+    setProjectActionStatus(null);
+    try {
+      const payload = await apiRequest(`/projects/${projectId}/reopen`, { method: 'POST', token });
+      await loadProjects(token, showArchived);
+      setSelectedProjectId(payload.project.id);
+      setProjectActionStatus({ type: 'success', message: `${payload.project.name} reopened.` });
+      addAudit(`Project reopened by ${displayName}: ${payload.project.name}`);
+    } catch (error) {
+      setProjectActionStatus({ type: 'error', message: error.message });
+    }
   }
 
   async function connectRepository(event) {
@@ -457,6 +471,11 @@ export function App() {
                 placeholder="Describe the release, workflow, customer, or scope."
               />
               {projectError && <p className="form-error">{projectError}</p>}
+              {projectActionStatus && (
+                <p className={projectActionStatus.type === 'success' ? 'form-success' : 'form-error'}>
+                  {projectActionStatus.message}
+                </p>
+              )}
               <button className="primary-button" type="submit">
                 Create project
               </button>
