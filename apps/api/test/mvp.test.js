@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../src/app.js';
 
 async function request(app, token, options) {
@@ -12,6 +12,65 @@ async function request(app, token, options) {
 }
 
 describe('functional testing API MVP', () => {
+  it('parses fenced JSON responses from AI providers into structured testing assets', async () => {
+    const originalFetch = global.fetch;
+    global.fetch = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        content: [
+          {
+            text: '```json\n{"aiResponse":"Parsed AI summary","aiSuggestions":{"userStories":[{"title":"Self-service password reset","narrative":"As a user, I can reset my password with an email OTP."}],"acceptanceCriteria":["OTP expires after 15 minutes"],"functionalTests":[{"title":"Successful reset","preconditions":["User has an account"],"steps":["Request OTP","Enter OTP","Set password"],"expectedOutcome":"Password is reset successfully."}],"negativeScenarios":["Expired OTP is rejected"],"missingScenarios":["Rate limiting"]}}\n```'
+          }
+        ]
+      })
+    }));
+
+    try {
+      const app = await buildApp({ databasePool: null });
+      const login = await app.inject({
+        method: 'POST',
+        url: '/auth/login',
+        payload: { email: 'admin@example.com', password: 'password' }
+      });
+      const adminToken = login.json().token;
+
+      const projectCreated = await request(app, adminToken, {
+        method: 'POST',
+        url: '/projects',
+        payload: { name: 'Portal Release' }
+      });
+      const project = projectCreated.json().project;
+
+      await request(app, adminToken, {
+        method: 'POST',
+        url: '/ai/provider-config',
+        payload: {
+          provider: 'anthropic',
+          model: 'claude-sonnet-4-20250514',
+          apiKey: 'anthropic-live-test-key'
+        }
+      });
+
+      const requirementCreated = await request(app, adminToken, {
+        method: 'POST',
+        url: `/projects/${project.id}/requirements`,
+        payload: {
+          title: 'Password reset',
+          prompt: 'User has forgotten password and receives an email OTP.'
+        }
+      });
+
+      expect(requirementCreated.statusCode).toBe(201);
+      const requirement = requirementCreated.json().requirement;
+      expect(requirement.aiResponse).toBe('Parsed AI summary');
+      expect(requirement.aiResponse).not.toContain('```');
+      expect(requirement.aiSuggestions.userStories[0].title).toBe('Self-service password reset');
+      expect(requirement.aiSuggestions.functionalTests[0].steps).toContain('Enter OTP');
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
   it('covers auth, RBAC, projects, repositories, AI assets, manual results, dashboards, and audit', async () => {
     const app = await buildApp({ databasePool: null });
 

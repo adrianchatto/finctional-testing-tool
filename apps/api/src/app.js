@@ -71,9 +71,23 @@ function fallbackRequirementAssets(prompt, title, provider, model) {
   };
 }
 
+function normaliseAiJsonContent(content) {
+  const trimmed = String(content || '').trim();
+  const fencedMatch = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(trimmed);
+  if (fencedMatch) return fencedMatch[1].trim();
+
+  const firstBrace = trimmed.indexOf('{');
+  const lastBrace = trimmed.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    return trimmed.slice(firstBrace, lastBrace + 1);
+  }
+
+  return trimmed;
+}
+
 function parseAiJson(content, prompt, title, provider, model) {
   try {
-    const parsed = JSON.parse(content);
+    const parsed = JSON.parse(normaliseAiJsonContent(content));
     return {
       ...fallbackRequirementAssets(prompt, title, provider, model),
       ...parsed,
@@ -97,7 +111,7 @@ function parseAiJson(content, prompt, title, provider, model) {
 function requirementSystemPrompt() {
   return [
     'You are an expert UAT and functional testing analyst.',
-    'Return concise JSON only.',
+    'Return concise JSON only. Do not wrap it in markdown code fences.',
     'The JSON shape must be:',
     '{"aiResponse": "...", "aiSuggestions": {"userStories": [{"title": "...", "narrative": "..."}], "acceptanceCriteria": ["..."], "functionalTests": [{"title": "...", "preconditions": ["..."], "steps": ["..."], "expectedOutcome": "..."}], "negativeScenarios": ["..."], "missingScenarios": ["..."]}}',
     'Keep the output business-readable, governance-focused, and directly testable.'
